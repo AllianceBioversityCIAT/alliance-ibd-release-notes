@@ -1,7 +1,8 @@
 "use client";
 
+import { useState } from "react";
 import type { MediaItem } from "@/app/lib/types";
-import { SparklesIcon, LoaderIcon, PlusIcon, ImageIcon, TrashIcon } from "./icons";
+import { SparklesIcon, LoaderIcon, PlusIcon, ImageIcon, TrashIcon, ExpandIcon, XIcon } from "./icons";
 import { GenerateLoadingSkeleton } from "./loading-skeleton";
 import { MarkdownRenderer } from "./markdown-renderer";
 import { CopyButton } from "./copy-button";
@@ -16,6 +17,7 @@ interface GenerateStepProps {
 }
 
 export function GenerateStep({ media, onMediaChange, onGenerate, loading, error, result }: GenerateStepProps) {
+  const [fullscreen, setFullscreen] = useState(false);
   function addMedia() {
     onMediaChange([...media, { url: "", ai_context: "" }]);
   }
@@ -123,25 +125,67 @@ export function GenerateStep({ media, onMediaChange, onGenerate, loading, error,
       )}
 
       {result && !loading && (
-        <div className="animate-slide-up space-y-4">
-          <div className="flex items-center justify-between">
-            <div className="flex items-center gap-2">
-              <div className="h-2 w-2 rounded-full bg-success" />
-              <span className="text-sm font-medium text-success">Release note generated</span>
+        <>
+          {/* Fullscreen overlay */}
+          {fullscreen && (
+            <div className="fixed inset-0 z-[60] flex flex-col bg-white">
+              <div className="flex items-center justify-between border-b border-gray-200 px-6 py-3">
+                <div className="flex items-center gap-3">
+                  <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-gradient-to-br from-purple-500 to-violet-600 text-white">
+                    <SparklesIcon className="w-4 h-4" />
+                  </div>
+                  <span className="text-sm font-semibold text-gray-900">Release Note</span>
+                  <div className="h-2 w-2 rounded-full bg-emerald-500" />
+                </div>
+                <div className="flex items-center gap-2">
+                  <CopyButton text={result} />
+                  <button
+                    onClick={() => setFullscreen(false)}
+                    className="flex items-center gap-1.5 rounded-lg bg-gray-100 px-3 py-2 text-xs font-medium text-gray-600 hover:bg-gray-200 transition-colors"
+                  >
+                    <XIcon className="w-3.5 h-3.5" />
+                    Close
+                  </button>
+                </div>
+              </div>
+              <div className="flex-1 overflow-y-auto p-6 sm:p-10">
+                <div className="mx-auto max-w-3xl">
+                  <MarkdownRenderer content={result} />
+                </div>
+              </div>
             </div>
-            <CopyButton text={result} />
+          )}
+
+          {/* Inline result */}
+          <div className="animate-slide-up space-y-4">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <div className="h-2 w-2 rounded-full bg-success" />
+                <span className="text-sm font-medium text-success">Release note generated</span>
+              </div>
+              <div className="flex items-center gap-2">
+                <button
+                  onClick={() => setFullscreen(true)}
+                  className="btn-press inline-flex items-center gap-1.5 rounded-md border border-card-border bg-card px-2.5 py-1.5 text-xs font-medium text-foreground transition-colors hover:bg-muted"
+                >
+                  <ExpandIcon className="w-3.5 h-3.5" />
+                  Fullscreen
+                </button>
+                <CopyButton text={result} />
+              </div>
+            </div>
+            <div className="rounded-lg border border-card-border bg-muted/50 p-5 sm:p-6">
+              <MarkdownRenderer content={result} />
+            </div>
+            <button
+              onClick={onGenerate}
+              className="btn-press inline-flex items-center gap-2 rounded-lg border border-card-border bg-card px-4 py-2 text-sm font-medium text-foreground transition-all hover:bg-muted"
+            >
+              <SparklesIcon className="w-4 h-4" />
+              Regenerate
+            </button>
           </div>
-          <div className="rounded-lg border border-card-border bg-muted/50 p-5 sm:p-6">
-            <MarkdownRenderer content={result} />
-          </div>
-          <button
-            onClick={onGenerate}
-            className="btn-press inline-flex items-center gap-2 rounded-lg border border-card-border bg-card px-4 py-2 text-sm font-medium text-foreground transition-all hover:bg-muted"
-          >
-            <SparklesIcon className="w-4 h-4" />
-            Regenerate
-          </button>
-        </div>
+        </>
       )}
     </div>
   );
