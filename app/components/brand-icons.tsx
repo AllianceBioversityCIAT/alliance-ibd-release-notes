@@ -35,6 +35,18 @@ export function GridIcon({ className = "w-4 h-4" }: { className?: string }) {
   );
 }
 
+export function FlowIcon({ className = "w-4 h-4" }: { className?: string }) {
+  return (
+    <svg className={className} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round">
+      <circle cx="5" cy="6" r="3" />
+      <circle cx="19" cy="6" r="3" />
+      <circle cx="12" cy="18" r="3" />
+      <path d="M7.5 7.5L10.5 16" />
+      <path d="M16.5 7.5L13.5 16" />
+    </svg>
+  );
+}
+
 export function FocusIcon({ className = "w-4 h-4" }: { className?: string }) {
   return (
     <svg className={className} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round">

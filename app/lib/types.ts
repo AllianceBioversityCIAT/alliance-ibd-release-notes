@@ -18,9 +18,18 @@ export interface HistoryEntry {
   createdAt: string;
 }
 
+/** API-level media: sent to the generate endpoint after uploading */
 export interface MediaItem {
   url: string;
   ai_context: string;
+}
+
+/** Local media item: file held in memory before upload */
+export interface LocalMediaItem {
+  file: File;
+  ai_context: string;
+  previewUrl: string; // URL.createObjectURL for images/videos, empty for other files
+  type: "image" | "video" | "file";
 }
 
 export interface StepStatus {

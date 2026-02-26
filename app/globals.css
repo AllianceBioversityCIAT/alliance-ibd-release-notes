@@ -173,6 +173,52 @@ body {
   50% { opacity: 0.3; }
 }
 
+/* React Flow overrides - dark theme */
+.react-flow__controls {
+  border-radius: 10px !important;
+  overflow: hidden;
+  background: #2a2a3e !important;
+  border: 1px solid rgba(255,255,255,0.1) !important;
+}
+
+.react-flow__controls button {
+  background: #2a2a3e !important;
+  border-bottom: 1px solid rgba(255,255,255,0.06) !important;
+  color: rgba(255,255,255,0.6) !important;
+  fill: rgba(255,255,255,0.6) !important;
+}
+
+.react-flow__controls button:hover {
+  background: #353550 !important;
+  color: rgba(255,255,255,0.9) !important;
+  fill: rgba(255,255,255,0.9) !important;
+}
+
+.react-flow__controls button:last-child {
+  border-bottom: none !important;
+}
+
+.react-flow__controls button svg {
+  fill: currentColor !important;
+}
+
+.react-flow__node {
+  cursor: grab !important;
+}
+
+.react-flow__node:active {
+  cursor: grabbing !important;
+}
+
+.react-flow__minimap {
+  border: 1px solid rgba(255,255,255,0.1) !important;
+}
+
+.react-flow__edge-path {
+  stroke-linecap: round;
+}
+
+
 .ai-glow-overlay {
   background:
     radial-gradient(ellipse at 35% 25%, rgba(168, 85, 247, 0.18) 0%, transparent 50%),

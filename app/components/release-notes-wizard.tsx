@@ -1,9 +1,9 @@
 "use client";
 
 import { useState, useCallback } from "react";
-import { DEFAULTS, DEFAULT_MEDIA } from "@/app/lib/constants";
-import type { MediaItem } from "@/app/lib/types";
-import { fetchJiraContext, fetchCommits, generateReleaseNote } from "@/app/lib/api";
+import { DEFAULTS } from "@/app/lib/constants";
+import type { LocalMediaItem } from "@/app/lib/types";
+import { fetchJiraContext, fetchCommits, generateReleaseNote, uploadFilesSequentially } from "@/app/lib/api";
 import { saveNote } from "@/app/lib/history";
 import { StepIndicator } from "./step-indicator";
 import { StepCard } from "./step-card";
@@ -20,8 +20,8 @@ export function ReleaseNotesWizard() {
   const [repo, setRepo] = useState<string>(DEFAULTS.repo);
   const [branch, setBranch] = useState<string>(DEFAULTS.branch);
 
-  // Media
-  const [media, setMedia] = useState<MediaItem[]>(DEFAULT_MEDIA.map((m) => ({ ...m })));
+  // Media (local files, not yet uploaded)
+  const [media, setMedia] = useState<LocalMediaItem[]>([]);
 
   // Step 1
   const [jiraLoading, setJiraLoading] = useState(false);
@@ -52,7 +52,6 @@ export function ReleaseNotesWizard() {
   const handleFetchJira = useCallback(async () => {
     setJiraLoading(true);
     setJiraError(null);
-    // Cascade reset
     setCommitsResult(null);
     setCommitsError(null);
     setGenerateResult(null);
@@ -70,7 +69,6 @@ export function ReleaseNotesWizard() {
   const handleFetchCommits = useCallback(async () => {
     setCommitsLoading(true);
     setCommitsError(null);
-    // Cascade reset step 3
     setGenerateResult(null);
     setGenerateError(null);
     try {
@@ -93,16 +91,26 @@ export function ReleaseNotesWizard() {
     setGenerateError(null);
     setGenerateResult(null);
     try {
+      // 1. Upload files to S3 sequentially
+      const files = media.map((m) => m.file);
+      const urls = files.length > 0 ? await uploadFilesSequentially(files) : [];
+
+      // 2. Build media array with S3 URLs + AI context
+      const mediaPayload = urls.map((url, i) => ({
+        url,
+        ai_context: media[i]?.ai_context || "",
+      }));
+
+      // 3. Generate release note
       const data = await generateReleaseNote({
         owner,
         repo,
         branch,
         jira_ticket: issueKey.trim(),
-        media: media.filter((m) => m.url.trim()),
+        media: mediaPayload,
       });
       setGenerateResult(data.output);
 
-      // Auto-save to history
       const firstHeading = data.output.match(/^#\s+(.+)$/m)?.[1] || issueKey.trim();
       saveNote({
         jiraKey: issueKey.trim(),

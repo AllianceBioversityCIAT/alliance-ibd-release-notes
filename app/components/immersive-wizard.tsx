@@ -2,9 +2,9 @@
 
 import { useState, useCallback, useEffect, useRef, Fragment } from "react";
 import dynamic from "next/dynamic";
-import { DEFAULTS, DEFAULT_MEDIA } from "@/app/lib/constants";
-import type { MediaItem } from "@/app/lib/types";
-import { fetchJiraContext, fetchCommits, generateReleaseNote } from "@/app/lib/api";
+import { DEFAULTS } from "@/app/lib/constants";
+import type { LocalMediaItem } from "@/app/lib/types";
+import { fetchJiraContext, fetchCommits, generateReleaseNote, uploadFilesSequentially } from "@/app/lib/api";
 import { saveNote } from "@/app/lib/history";
 import { JiraStep } from "./jira-step";
 import { GitHubStep } from "./github-step";
@@ -13,17 +13,22 @@ import { HistoryPanel } from "./history-panel";
 import { HistoryIcon, CheckIcon, XIcon, SparklesIcon } from "./icons";
 import { MarkdownRenderer } from "./markdown-renderer";
 import { CopyButton } from "./copy-button";
-import { JiraIcon, GitHubIcon, AIIcon, GridIcon, FocusIcon } from "./brand-icons";
+import { JiraIcon, GitHubIcon, AIIcon, GridIcon, FocusIcon, FlowIcon } from "./brand-icons";
 import { PanoramicView } from "./panoramic-view";
 import { WorkspaceView } from "./workspace-view";
 import type { ParticleState } from "./three/particle-field";
+
+const FlowView = dynamic(
+  () => import("./flow-view").then((m) => m.FlowView),
+  { ssr: false }
+);
 
 const ParticleScene = dynamic(
   () => import("./three/particle-background").then((m) => m.ParticleScene),
   { ssr: false }
 );
 
-type ViewMode = "panoramic" | "workspace";
+type ViewMode = "panoramic" | "workspace" | "flow";
 
 export function ImmersiveWizard() {
   // Form state
@@ -31,7 +36,7 @@ export function ImmersiveWizard() {
   const [owner, setOwner] = useState<string>(DEFAULTS.owner);
   const [repo, setRepo] = useState<string>(DEFAULTS.repo);
   const [branch, setBranch] = useState<string>(DEFAULTS.branch);
-  const [media, setMedia] = useState<MediaItem[]>(DEFAULT_MEDIA.map((m) => ({ ...m })));
+  const [media, setMedia] = useState<LocalMediaItem[]>([]);
 
   // Steps
   const [jiraLoading, setJiraLoading] = useState(false);
@@ -157,12 +162,23 @@ export function ImmersiveWizard() {
     setGenerateError(null);
     setGenerateResult(null);
     try {
+      // 1. Upload files to S3 sequentially
+      const files = media.map((m) => m.file);
+      const urls = files.length > 0 ? await uploadFilesSequentially(files) : [];
+
+      // 2. Build media array with S3 URLs + AI context
+      const mediaPayload = urls.map((url, i) => ({
+        url,
+        ai_context: media[i]?.ai_context || "",
+      }));
+
+      // 3. Generate release note
       const data = await generateReleaseNote({
         owner,
         repo,
         branch,
         jira_ticket: issueKey.trim(),
-        media: media.filter((m) => m.url.trim()),
+        media: mediaPayload,
       });
       setGenerateResult(data.output);
       setMarkdownFullscreen(true);
@@ -344,20 +360,25 @@ export function ImmersiveWizard() {
           {/* Right actions */}
           <div className="flex items-center gap-2">
             {/* View toggle - desktop only */}
-            <button
-              onClick={() => setViewMode(viewMode === "panoramic" ? "workspace" : "panoramic")}
-              className="hidden sm:flex items-center gap-1.5 rounded-lg bg-white/8 px-3 py-2 text-[11px] font-medium text-white/60 hover:bg-white/12 hover:text-white/80 transition-colors"
-            >
-              {viewMode === "panoramic" ? (
-                <>
-                  <GridIcon className="w-3.5 h-3.5" /> Workspace
-                </>
-              ) : (
-                <>
-                  <FocusIcon className="w-3.5 h-3.5" /> Focus
-                </>
-              )}
-            </button>
+            <div className="hidden sm:flex items-center gap-1 rounded-lg bg-white/8 p-0.5">
+              {([
+                { mode: "panoramic" as ViewMode, icon: <FocusIcon className="w-3.5 h-3.5" />, label: "Focus" },
+                { mode: "workspace" as ViewMode, icon: <GridIcon className="w-3.5 h-3.5" />, label: "Workspace" },
+                { mode: "flow" as ViewMode, icon: <FlowIcon className="w-3.5 h-3.5" />, label: "Flow" },
+              ]).map((v) => (
+                <button
+                  key={v.mode}
+                  onClick={() => setViewMode(v.mode)}
+                  className={`flex items-center gap-1.5 rounded-md px-2.5 py-1.5 text-[11px] font-medium transition-colors ${
+                    viewMode === v.mode
+                      ? "bg-white/15 text-white/90"
+                      : "text-white/50 hover:text-white/70"
+                  }`}
+                >
+                  {v.icon} {v.label}
+                </button>
+              ))}
+            </div>
             <button
               onClick={() => setHistoryOpen(true)}
               className="flex h-9 w-9 items-center justify-center rounded-lg bg-white/8 text-white/50 hover:bg-white/12 hover:text-white/80 transition-colors"
@@ -370,21 +391,35 @@ export function ImmersiveWizard() {
       </nav>
 
       {/* Content */}
-      <main ref={contentRef} className="relative z-10 mx-auto max-w-5xl px-2 py-6 sm:px-4 sm:py-8">
-        {viewMode === "panoramic" ? (
+      <main ref={contentRef} className={`relative z-10 ${viewMode === "flow" ? "px-0 py-0" : "mx-auto max-w-5xl px-2 py-6 sm:px-4 sm:py-8"}`}>
+        {viewMode === "panoramic" && (
           <PanoramicView
             activeStep={activeStep}
             particleState={particleState}
             panels={panelConfigs}
             onStepChange={handleStepChange}
           />
-        ) : (
+        )}
+        {viewMode === "workspace" && (
           <WorkspaceView
             panels={panelConfigs}
             onResetView={() => setViewMode("panoramic")}
           />
         )}
       </main>
+
+      {/* Flow mode — fullscreen overlay, no navbar, no background */}
+      {viewMode === "flow" && (
+        <div className="fixed inset-0 z-50">
+          <FlowView
+            onFullscreenMarkdown={(md: string) => {
+              setGenerateResult(md);
+              setMarkdownFullscreen(true);
+            }}
+            onBack={() => setViewMode("panoramic")}
+          />
+        </div>
+      )}
 
       {/* Loading overlay - icon + text in center of leaf whirlwind */}
       {(jiraLoading || commitsLoading || generateLoading) && (
