@@ -18,7 +18,8 @@ import type { LocalMediaItem } from "@/app/lib/types";
 import { fetchJiraContext, fetchCommits, generateReleaseNote, uploadFilesSequentially } from "@/app/lib/api";
 import { saveNote } from "@/app/lib/history";
 import { flowNodeTypes } from "./flow-nodes";
-import { TrashIcon, PlusIcon, ArrowLeftIcon } from "./icons";
+import { TrashIcon, PlusIcon } from "./icons";
+import { FocusIcon, GridIcon } from "./brand-icons";
 
 /* ── Offsets relative to the parent node's current position ── */
 const BELOW = { dx: 0, dy: 340 };   // result below input
@@ -66,10 +67,10 @@ function findPos(nds: Node[], id: string) {
 
 interface FlowViewProps {
   onFullscreenMarkdown: (markdown: string) => void;
-  onBack: () => void;
+  onSwitchView: (mode: "panoramic" | "workspace") => void;
 }
 
-export function FlowView({ onFullscreenMarkdown, onBack }: FlowViewProps) {
+export function FlowView({ onFullscreenMarkdown, onSwitchView }: FlowViewProps) {
   const [nodes, setNodes, onNodesChange] = useNodesState([] as Node[]);
   const [edges, setEdges, onEdgesChange] = useEdgesState([] as Edge[]);
 
@@ -315,9 +316,13 @@ export function FlowView({ onFullscreenMarkdown, onBack }: FlowViewProps) {
     <div className="relative w-full h-full">
       {/* Toolbar */}
       <div className="absolute top-3 left-3 z-10 flex items-center gap-2">
-        <button onClick={onBack}
+        <button onClick={() => onSwitchView("panoramic")}
           className="rounded-lg bg-[#2a2a3e] border border-white/10 px-3 py-1.5 text-xs font-medium text-white/70 hover:bg-[#353550] hover:text-white shadow-lg transition-colors flex items-center gap-1.5">
-          <ArrowLeftIcon className="w-3 h-3" /> Back
+          <FocusIcon className="w-3 h-3" /> Focus
+        </button>
+        <button onClick={() => onSwitchView("workspace")}
+          className="rounded-lg bg-[#2a2a3e] border border-white/10 px-3 py-1.5 text-xs font-medium text-white/70 hover:bg-[#353550] hover:text-white shadow-lg transition-colors flex items-center gap-1.5">
+          <GridIcon className="w-3 h-3" /> Workspace
         </button>
         <button onClick={addFlow}
           className="rounded-lg bg-[#2a2a3e] border border-white/10 px-3 py-1.5 text-xs font-medium text-white/70 hover:bg-[#353550] hover:text-white shadow-lg transition-colors flex items-center gap-1.5">

@@ -53,7 +53,7 @@ export function ImmersiveWizard() {
 
   // UI
   const [historyOpen, setHistoryOpen] = useState(false);
-  const [viewMode, setViewMode] = useState<ViewMode>("panoramic");
+  const [viewMode, setViewMode] = useState<ViewMode>("flow");
   const [activeStep, setActiveStep] = useState(1);
   const [mouse, setMouse] = useState({ x: 0, y: 0 });
   const [markdownFullscreen, setMarkdownFullscreen] = useState(false);
@@ -266,37 +266,43 @@ export function ImmersiveWizard() {
     },
   ];
 
+  const isFlow = viewMode === "flow";
+
   return (
     <div className="relative min-h-screen overflow-hidden">
-      {/* Panoramic landscape background - oversized for pan room */}
-      <div className="fixed inset-0 z-0 overflow-hidden">
+      {/* Panoramic landscape background - only when NOT in flow mode */}
+      {!isFlow && (
+        <div className="fixed inset-0 z-0 overflow-hidden">
+          <div
+            ref={bgElRef}
+            className="absolute will-change-transform"
+            style={{
+              inset: "-80px",
+              backgroundImage: "url('/art-rural-landscape-field-grass-summer-time-country-side.jpg')",
+              backgroundSize: "cover",
+              backgroundPosition: "center 35%",
+            }}
+          />
+        </div>
+      )}
+      {/* Dark gradient overlay for readability */}
+      {!isFlow && (
         <div
-          ref={bgElRef}
-          className="absolute will-change-transform"
+          className="fixed inset-0 z-[1] pointer-events-none"
           style={{
-            inset: "-80px",
-            backgroundImage: "url('/art-rural-landscape-field-grass-summer-time-country-side.jpg')",
-            backgroundSize: "cover",
-            backgroundPosition: "center 35%",
+            background: `
+              linear-gradient(180deg, rgba(5,14,8,0.65) 0%, rgba(5,14,8,0.35) 30%, rgba(5,14,8,0.40) 60%, rgba(5,14,8,0.75) 100%),
+              radial-gradient(ellipse at 50% 0%, rgba(16,185,129,0.06) 0%, transparent 60%)
+            `,
           }}
         />
-      </div>
-      {/* Dark gradient overlay for readability */}
-      <div
-        className="fixed inset-0 z-[1] pointer-events-none"
-        style={{
-          background: `
-            linear-gradient(180deg, rgba(5,14,8,0.65) 0%, rgba(5,14,8,0.35) 30%, rgba(5,14,8,0.40) 60%, rgba(5,14,8,0.75) 100%),
-            radial-gradient(ellipse at 50% 0%, rgba(16,185,129,0.06) 0%, transparent 60%)
-          `,
-        }}
-      />
+      )}
 
-      {/* Particle overlay - renders ON TOP of HTML, pointer-events: none */}
-      <ParticleScene state={particleState} mouse={mouse} />
+      {/* Particle overlay - only when NOT in flow mode */}
+      {!isFlow && <ParticleScene state={particleState} mouse={mouse} />}
 
-      {/* Nav */}
-      <nav className="glass-nav sticky top-0 z-40">
+      {/* Nav - hidden in flow mode */}
+      {!isFlow && <nav className="glass-nav sticky top-0 z-40">
         <div className="mx-auto flex max-w-5xl items-center justify-between px-4 py-3 sm:px-6">
           {/* Logo */}
           <div className="flex items-center gap-2.5">
@@ -388,7 +394,7 @@ export function ImmersiveWizard() {
             </button>
           </div>
         </div>
-      </nav>
+      </nav>}
 
       {/* Content */}
       <main ref={contentRef} className={`relative z-10 ${viewMode === "flow" ? "px-0 py-0" : "mx-auto max-w-5xl px-2 py-6 sm:px-4 sm:py-8"}`}>
@@ -416,13 +422,13 @@ export function ImmersiveWizard() {
               setGenerateResult(md);
               setMarkdownFullscreen(true);
             }}
-            onBack={() => setViewMode("panoramic")}
+            onSwitchView={(mode) => setViewMode(mode)}
           />
         </div>
       )}
 
-      {/* Loading overlay - icon + text in center of leaf whirlwind */}
-      {(jiraLoading || commitsLoading || generateLoading) && (
+      {/* Loading overlay - icon + text in center of leaf whirlwind (only non-flow views) */}
+      {!isFlow && (jiraLoading || commitsLoading || generateLoading) && (
         <div className="fixed inset-0 z-[15] pointer-events-none flex items-center justify-center">
           <div className="flex flex-col items-center gap-4 animate-fade-in rounded-3xl bg-black/40 backdrop-blur-md px-10 py-8">
             {/* Spinning icon ring */}
@@ -505,8 +511,8 @@ export function ImmersiveWizard() {
         </div>
       )}
 
-      {/* AI generating glow */}
-      {particleState === "ai-generating" && (
+      {/* AI generating glow (only non-flow views) */}
+      {!isFlow && particleState === "ai-generating" && (
         <div className="fixed inset-0 z-0 pointer-events-none ai-glow-overlay" />
       )}
 
