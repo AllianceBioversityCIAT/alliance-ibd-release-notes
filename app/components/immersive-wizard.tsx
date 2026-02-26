@@ -10,7 +10,9 @@ import { JiraStep } from "./jira-step";
 import { GitHubStep } from "./github-step";
 import { GenerateStep } from "./generate-step";
 import { HistoryPanel } from "./history-panel";
-import { HistoryIcon, CheckIcon } from "./icons";
+import { HistoryIcon, CheckIcon, XIcon, SparklesIcon } from "./icons";
+import { MarkdownRenderer } from "./markdown-renderer";
+import { CopyButton } from "./copy-button";
 import { JiraIcon, GitHubIcon, AIIcon, GridIcon, FocusIcon } from "./brand-icons";
 import { PanoramicView } from "./panoramic-view";
 import { WorkspaceView } from "./workspace-view";
@@ -49,6 +51,7 @@ export function ImmersiveWizard() {
   const [viewMode, setViewMode] = useState<ViewMode>("panoramic");
   const [activeStep, setActiveStep] = useState(1);
   const [mouse, setMouse] = useState({ x: 0, y: 0 });
+  const [markdownFullscreen, setMarkdownFullscreen] = useState(false);
 
   // Mouse tracking (state for particles, ref for background)
   const mouseTargetRef = useRef({ x: 0, y: 0 });
@@ -162,6 +165,7 @@ export function ImmersiveWizard() {
         media: media.filter((m) => m.url.trim()),
       });
       setGenerateResult(data.output);
+      setMarkdownFullscreen(true);
       const firstHeading = data.output.match(/^#\s+(.+)$/m)?.[1] || issueKey.trim();
       saveNote({ jiraKey: issueKey.trim(), title: firstHeading, markdown: data.output });
     } catch (e) {
@@ -237,6 +241,7 @@ export function ImmersiveWizard() {
           media={media}
           onMediaChange={setMedia}
           onGenerate={handleGenerate}
+          onFullscreen={() => setMarkdownFullscreen(true)}
           loading={generateLoading}
           error={generateError}
           result={generateResult}
@@ -384,7 +389,7 @@ export function ImmersiveWizard() {
       {/* Loading overlay - icon + text in center of leaf whirlwind */}
       {(jiraLoading || commitsLoading || generateLoading) && (
         <div className="fixed inset-0 z-[15] pointer-events-none flex items-center justify-center">
-          <div className="flex flex-col items-center gap-4 animate-fade-in">
+          <div className="flex flex-col items-center gap-4 animate-fade-in rounded-3xl bg-black/40 backdrop-blur-md px-10 py-8">
             {/* Spinning icon ring */}
             <div className="relative flex items-center justify-center">
               {/* Outer rotating ring */}
@@ -471,6 +476,36 @@ export function ImmersiveWizard() {
       )}
 
       <HistoryPanel open={historyOpen} onClose={() => setHistoryOpen(false)} />
+
+      {/* Markdown fullscreen overlay - auto-opens on generate, above everything */}
+      {markdownFullscreen && generateResult && (
+        <div className="fixed inset-0 z-[70] flex flex-col bg-white animate-fade-in">
+          <div className="flex items-center justify-between border-b border-gray-200 px-6 py-3 flex-shrink-0">
+            <div className="flex items-center gap-3">
+              <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-gradient-to-br from-purple-500 to-violet-600 text-white">
+                <SparklesIcon className="w-4 h-4" />
+              </div>
+              <span className="text-sm font-semibold text-gray-900">Release Note</span>
+              <div className="h-2 w-2 rounded-full bg-emerald-500" />
+            </div>
+            <div className="flex items-center gap-2">
+              <CopyButton text={generateResult} />
+              <button
+                onClick={() => setMarkdownFullscreen(false)}
+                className="flex items-center gap-1.5 rounded-lg bg-gray-100 px-3 py-2 text-xs font-medium text-gray-600 hover:bg-gray-200 transition-colors"
+              >
+                <XIcon className="w-3.5 h-3.5" />
+                Close
+              </button>
+            </div>
+          </div>
+          <div className="flex-1 overflow-y-auto p-6 sm:p-10">
+            <div className="mx-auto max-w-3xl">
+              <MarkdownRenderer content={generateResult} />
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
