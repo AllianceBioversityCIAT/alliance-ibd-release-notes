@@ -1,7 +1,8 @@
 "use client";
 
 import { useState, useCallback } from "react";
-import { DEFAULTS } from "@/app/lib/constants";
+import { DEFAULTS, DEFAULT_MEDIA } from "@/app/lib/constants";
+import type { MediaItem } from "@/app/lib/types";
 import { fetchJiraContext, fetchCommits, generateReleaseNote } from "@/app/lib/api";
 import { saveNote } from "@/app/lib/history";
 import { StepIndicator } from "./step-indicator";
@@ -18,6 +19,9 @@ export function ReleaseNotesWizard() {
   const [owner, setOwner] = useState<string>(DEFAULTS.owner);
   const [repo, setRepo] = useState<string>(DEFAULTS.repo);
   const [branch, setBranch] = useState<string>(DEFAULTS.branch);
+
+  // Media
+  const [media, setMedia] = useState<MediaItem[]>(DEFAULT_MEDIA.map((m) => ({ ...m })));
 
   // Step 1
   const [jiraLoading, setJiraLoading] = useState(false);
@@ -94,6 +98,7 @@ export function ReleaseNotesWizard() {
         repo,
         branch,
         jira_ticket: issueKey.trim(),
+        media: media.filter((m) => m.url.trim()),
       });
       setGenerateResult(data.output);
 
@@ -109,7 +114,7 @@ export function ReleaseNotesWizard() {
     } finally {
       setGenerateLoading(false);
     }
-  }, [owner, repo, branch, issueKey]);
+  }, [owner, repo, branch, issueKey, media]);
 
   return (
     <>
@@ -173,6 +178,8 @@ export function ReleaseNotesWizard() {
           isCompleted={!!generateResult}
         >
           <GenerateStep
+            media={media}
+            onMediaChange={setMedia}
             onGenerate={handleGenerate}
             loading={generateLoading}
             error={generateError}

@@ -18,6 +18,11 @@ export interface HistoryEntry {
   createdAt: string;
 }
 
+export interface MediaItem {
+  url: string;
+  ai_context: string;
+}
+
 export interface StepStatus {
   loading: boolean;
   error: string | null;

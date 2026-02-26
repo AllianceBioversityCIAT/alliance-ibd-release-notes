@@ -1,6 +1,6 @@
 import type { JiraResponse, CommitsResponse, GenerateResponse } from "./types";
 
-async function post<T>(url: string, body: Record<string, string>): Promise<T> {
+async function post<T>(url: string, body: Record<string, unknown>): Promise<T> {
   const res = await fetch(url, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
@@ -31,6 +31,7 @@ export function generateReleaseNote(params: {
   repo: string;
   branch: string;
   jira_ticket: string;
+  media: { url: string; ai_context: string }[];
 }) {
   return post<GenerateResponse>("/api/release-notes/generate", params);
 }

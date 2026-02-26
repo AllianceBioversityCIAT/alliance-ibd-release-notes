@@ -12,6 +12,7 @@ export async function POST(req: NextRequest) {
         repo: body.repo,
         branch: body.branch,
         jira_ticket: body.jira_ticket,
+        media: body.media || [],
       }),
     });
     if (!res.ok) {

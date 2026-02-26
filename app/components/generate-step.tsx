@@ -1,20 +1,98 @@
 "use client";
 
-import { SparklesIcon, LoaderIcon } from "./icons";
+import type { MediaItem } from "@/app/lib/types";
+import { SparklesIcon, LoaderIcon, PlusIcon, ImageIcon, TrashIcon } from "./icons";
 import { GenerateLoadingSkeleton } from "./loading-skeleton";
 import { MarkdownRenderer } from "./markdown-renderer";
 import { CopyButton } from "./copy-button";
 
 interface GenerateStepProps {
+  media: MediaItem[];
+  onMediaChange: (media: MediaItem[]) => void;
   onGenerate: () => void;
   loading: boolean;
   error: string | null;
   result: string | null;
 }
 
-export function GenerateStep({ onGenerate, loading, error, result }: GenerateStepProps) {
+export function GenerateStep({ media, onMediaChange, onGenerate, loading, error, result }: GenerateStepProps) {
+  function addMedia() {
+    onMediaChange([...media, { url: "", ai_context: "" }]);
+  }
+
+  function removeMedia(index: number) {
+    onMediaChange(media.filter((_, i) => i !== index));
+  }
+
+  function updateMedia(index: number, field: keyof MediaItem, value: string) {
+    const updated = media.map((item, i) => (i === index ? { ...item, [field]: value } : item));
+    onMediaChange(updated);
+  }
+
   return (
-    <div className="space-y-4">
+    <div className="space-y-5">
+      {/* Media section */}
+      <div className="space-y-3">
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-2">
+            <ImageIcon className="w-4 h-4 text-muted-foreground" />
+            <span className="text-sm font-medium text-foreground">Media</span>
+            <span className="text-xs text-muted-foreground">({media.length} image{media.length !== 1 ? "s" : ""})</span>
+          </div>
+          <button
+            onClick={addMedia}
+            className="btn-press inline-flex items-center gap-1.5 rounded-md border border-card-border bg-card px-2.5 py-1.5 text-xs font-medium text-foreground transition-colors hover:bg-muted"
+          >
+            <PlusIcon className="w-3.5 h-3.5" />
+            Add Image
+          </button>
+        </div>
+
+        {media.length > 0 && (
+          <div className="space-y-2">
+            {media.map((item, i) => (
+              <div key={i} className="flex items-start gap-2 rounded-lg border border-card-border bg-muted/30 p-3">
+                <div className="flex-1 space-y-2">
+                  <input
+                    type="text"
+                    value={item.url}
+                    onChange={(e) => updateMedia(i, "url", e.target.value)}
+                    placeholder="https://example.com/image.png"
+                    className="w-full rounded-md border border-card-border bg-background px-3 py-2 text-sm text-foreground placeholder:text-muted-foreground outline-none transition-shadow focus:ring-2 focus:ring-ring/30 focus:border-ring"
+                  />
+                  <input
+                    type="text"
+                    value={item.ai_context}
+                    onChange={(e) => updateMedia(i, "ai_context", e.target.value)}
+                    placeholder="e.g. Use as hero banner at the top of the blog post"
+                    className="w-full rounded-md border border-card-border bg-background px-3 py-1.5 text-xs text-foreground placeholder:text-muted-foreground outline-none transition-shadow focus:ring-2 focus:ring-ring/30 focus:border-ring"
+                  />
+                </div>
+                {/* Thumbnail preview */}
+                {item.url && (
+                  <div className="h-14 w-20 flex-shrink-0 overflow-hidden rounded-md border border-card-border bg-muted">
+                    {/* eslint-disable-next-line @next/next/no-img-element */}
+                    <img
+                      src={item.url}
+                      alt={item.ai_context || "preview"}
+                      className="h-full w-full object-cover"
+                      onError={(e) => { (e.target as HTMLImageElement).style.display = "none"; }}
+                    />
+                  </div>
+                )}
+                <button
+                  onClick={() => removeMedia(i)}
+                  className="mt-1.5 rounded-md p-1.5 text-muted-foreground transition-colors hover:bg-error-light hover:text-error"
+                >
+                  <TrashIcon className="w-3.5 h-3.5" />
+                </button>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+
+      {/* Generate button */}
       {!result && !loading && (
         <button
           onClick={onGenerate}
