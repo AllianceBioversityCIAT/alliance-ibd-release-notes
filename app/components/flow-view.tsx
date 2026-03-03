@@ -25,6 +25,7 @@ import { FocusIcon, GridIcon } from "./brand-icons";
 const BELOW = { dx: 0, dy: 340 };   // result below input
 const RIGHT = { dx: 780, dy: 0 };   // next input to the right
 const FLOW_GAP_Y = 900;
+const RESULT_W = 750; // result node width (700) + horizontal gap (50)
 
 function mkEdge(src: string, srcH: string, tgt: string, tgtH: string): Edge {
   return {
@@ -40,7 +41,7 @@ function mkEdge(src: string, srcH: string, tgt: string, tgtH: string): Edge {
 /* ── Persist / restore canvas ── */
 const CANVAS_KEY = "flow-canvas-state";
 
-interface FlowState { jiraKey: string; owner: string; repo: string; branch: string; }
+interface FlowState { jiraKey: string; jiraKeys: string[]; owner: string; repo: string; branch: string; }
 
 interface PersistedCanvas {
   flowCount: number;
@@ -86,8 +87,9 @@ export function FlowView({ onFullscreenMarkdown, onStreamingChange, onSwitchView
     const handleJira = async (issueKeys: string[]) => {
       const primaryKey = issueKeys[0] ?? "";
       flowStatesRef.current[prefix].jiraKey = primaryKey;
+      flowStatesRef.current[prefix].jiraKeys = issueKeys;
       const jIn = nid(prefix, "jira-input"), jLoad = nid(prefix, "jira-loading");
-      const jRes = nid(prefix, "jira-result"), gIn = nid(prefix, "github-input");
+      const gIn = nid(prefix, "github-input");
 
       const label = issueKeys.length > 1
         ? `Fetching ${issueKeys.length} Jira contexts...`
@@ -97,31 +99,46 @@ export function FlowView({ onFullscreenMarkdown, onStreamingChange, onSwitchView
         const p = findPos(nds, jIn);
         return [
           ...nds.map((n) => n.id === jIn ? { ...n, data: { ...n.data, disabled: true } } : n),
-          { id: jLoad, type: "loading", position: { x: p.x + BELOW.dx, y: p.y + BELOW.dy }, data: { label, color: "#0052CC" } } as Node,
+          { id: jLoad, type: "loading", position: { x: p.x + BELOW.dx, y: p.y + BELOW.dy },
+            data: { label, color: "#0052CC" } } as Node,
         ];
       });
       setEdges((eds) => [...eds, mkEdge(jIn, "bottom", jLoad, "top")]);
 
       try {
-        const data = await fetchJiraContext(issueKeys);
-        const title = issueKeys.length > 1 ? `Jira: ${issueKeys.join(", ")}` : `Jira: ${primaryKey}`;
+        const ctxResults = await Promise.allSettled(issueKeys.map((k) => fetchJiraContext([k])));
+
         setNodes((nds) => {
           const p = findPos(nds, jIn);
+          const resultNodes: Node[] = issueKeys.map((key, i) => {
+            const ctx = ctxResults[i].status === "fulfilled"
+              ? ctxResults[i].value.jira_context
+              : `_Failed to fetch ${key}_`;
+            return {
+              id: nid(prefix, `jira-result-${i}`), type: "result",
+              position: { x: p.x + i * RESULT_W, y: p.y + BELOW.dy },
+              style: { width: 700 },
+              data: { markdown: ctx, title: `Jira: ${key}`, color: "#0052CC", icon: "jira",
+                onFullscreen: () => onFullscreenMarkdown(ctx) },
+            } as Node;
+          });
+          const githubX = p.x + Math.max(RIGHT.dx, issueKeys.length * RESULT_W + 30);
           return [
             ...nds.filter((n) => n.id !== jLoad),
-            { id: jRes, type: "result", position: { x: p.x + BELOW.dx, y: p.y + BELOW.dy }, style: { width: 700 },
-              data: { markdown: data.jira_context, title, color: "#0052CC", icon: "jira", onFullscreen: () => onFullscreenMarkdown(data.jira_context) } } as Node,
-            { id: gIn, type: "githubInput", position: { x: p.x + RIGHT.dx, y: p.y + RIGHT.dy },
+            ...resultNodes,
+            { id: gIn, type: "githubInput",
+              position: { x: githubX, y: p.y + RIGHT.dy },
               data: { jiraTicket: primaryKey, onSubmit: (o: string, r: string, b: string) => handleGitHub(o, r, b), disabled: false } } as Node,
           ];
         });
-        setEdges((eds) => [
-          ...eds.filter((e) => !e.id.includes(jLoad)),
-          mkEdge(jIn, "bottom", jRes, "top"),
-          mkEdge(jIn, "right", gIn, "left"),
-        ]);
+        setEdges((eds) => {
+          const base = eds.filter((e) => !e.id.includes(jLoad));
+          const resultEdges = issueKeys.map((_, i) => mkEdge(jIn, "bottom", nid(prefix, `jira-result-${i}`), "top"));
+          return [...base, ...resultEdges, mkEdge(jIn, "right", gIn, "left")];
+        });
       } catch (err) {
-        setNodes((nds) => nds.filter((n) => n.id !== jLoad).map((n) => n.id === jIn ? { ...n, data: { ...n.data, disabled: false, onSubmit: handleJira } } : n));
+        setNodes((nds) => nds.filter((n) => n.id !== jLoad)
+          .map((n) => n.id === jIn ? { ...n, data: { ...n.data, disabled: false, onSubmit: handleJira } } : n));
         setEdges((eds) => eds.filter((e) => !e.id.includes(jLoad)));
         alert(`Jira error: ${err instanceof Error ? err.message : "Unknown error"}`);
       }
@@ -192,7 +209,7 @@ export function FlowView({ onFullscreenMarkdown, onStreamingChange, onSwitchView
 
         onStreamingChange?.(true);
 
-        for await (const chunk of streamReleaseNote({ owner: s.owner, repo: s.repo, branch: s.branch, jira_tickets: [s.jiraKey], media })) {
+        for await (const chunk of streamReleaseNote({ owner: s.owner, repo: s.repo, branch: s.branch, jira_tickets: s.jiraKeys.length > 0 ? s.jiraKeys : [s.jiraKey], media })) {
           accumulated += chunk;
 
           if (isFirstChunk) {
@@ -288,7 +305,7 @@ export function FlowView({ onFullscreenMarkdown, onStreamingChange, onSwitchView
     const idx = flowCountRef.current;
     flowCountRef.current += 1;
     const prefix = `f${idx}`;
-    flowStatesRef.current[prefix] = { jiraKey: "", owner: "", repo: "", branch: "" };
+    flowStatesRef.current[prefix] = { jiraKey: "", jiraKeys: [], owner: "", repo: "", branch: "" };
     const { handleJira } = makeHandlers(prefix);
 
     setNodes((nds) => [
@@ -310,7 +327,7 @@ export function FlowView({ onFullscreenMarkdown, onStreamingChange, onSwitchView
       const idx = flowCountRef.current;
       flowCountRef.current += 1;
       const prefix = `f${idx}`;
-      flowStatesRef.current[prefix] = { jiraKey: "", owner: "", repo: "", branch: "" };
+      flowStatesRef.current[prefix] = { jiraKey: "", jiraKeys: [], owner: "", repo: "", branch: "" };
       const { handleJira } = makeHandlers(prefix);
 
       return [
@@ -331,7 +348,7 @@ export function FlowView({ onFullscreenMarkdown, onStreamingChange, onSwitchView
     // Create fresh flow directly (not via createNewFlow which appends)
     const prefix = "f0";
     flowCountRef.current = 1;
-    flowStatesRef.current[prefix] = { jiraKey: "", owner: "", repo: "", branch: "" };
+    flowStatesRef.current[prefix] = { jiraKey: "", jiraKeys: [], owner: "", repo: "", branch: "" };
     const { handleJira } = makeHandlers(prefix);
 
     setNodes([
