@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { fetchJiraIssue, formatJiraIssue } from "../_lib/jira";
+import { buildJiraContext } from "../_lib/jira";
 import { fetchGitHubCommits, filterAndFormatCommits } from "../_lib/github";
 
 export const dynamic = "force-dynamic";
@@ -43,7 +43,8 @@ For each change:
 ### Footer
 - End with a "---" separator
 - A short, professional closing message thanking the team
-- List contributors with their GitHub profiles linked: [@user](https://github.com/user)
+- List developers/contributors with their GitHub profiles linked: [@user](https://github.com/user)
+- If a Jira reporter is provided, add a line: "Special thanks to [Name] for identifying this need and driving it forward."
 
 ## Media Integration
 You will receive an optional array of media objects with this structure:
@@ -64,13 +65,12 @@ export async function POST(req: NextRequest) {
   try {
     const { owner, repo, branch, jira_ticket, media } = await req.json();
 
-    // Fetch Jira and GitHub in parallel
-    const [issue, commits] = await Promise.all([
-      fetchJiraIssue(jira_ticket),
+    // Fetch Jira (with recursive subtask tree) and GitHub in parallel
+    const [{ jira_context, reporter }, commits] = await Promise.all([
+      buildJiraContext(jira_ticket),
       fetchGitHubCommits(owner, repo, branch),
     ]);
 
-    const { jira_context } = formatJiraIssue(issue);
     const { release_notes_input } = filterAndFormatCommits(commits, jira_ticket);
 
     const mediaSection =
@@ -82,6 +82,7 @@ export async function POST(req: NextRequest) {
       `Write a release blog post from this data:\n\n` +
       `${release_notes_input}\n\n` +
       `${jira_context}\n\n` +
+      `Jira Reporter (person who identified and reported this need): ${reporter}\n\n` +
       `Media assets:\n${mediaSection}`;
 
     const openaiRes = await fetch("https://api.openai.com/v1/chat/completions", {
