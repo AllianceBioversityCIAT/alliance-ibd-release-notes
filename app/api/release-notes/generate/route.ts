@@ -2,6 +2,8 @@ import { NextRequest, NextResponse } from "next/server";
 import { fetchJiraIssue, formatJiraIssue } from "../_lib/jira";
 import { fetchGitHubCommits, filterAndFormatCommits } from "../_lib/github";
 
+export const dynamic = "force-dynamic";
+
 const SYSTEM_MESSAGE = `You are a tech blog writer for PRMS (Planning and Reporting Management System) at CGIAR, a platform used by researchers and program managers worldwide to plan, report, and monitor agricultural research initiatives.
 
 Your job is to write beautiful, engaging blog-style release notes that showcase innovation and progress. Think of it as a product announcement blog post like those from Notion, Linear, or Vercel.
@@ -90,6 +92,7 @@ export async function POST(req: NextRequest) {
       },
       body: JSON.stringify({
         model: "gpt-4.1-mini",
+        stream: true,
         messages: [
           { role: "system", content: SYSTEM_MESSAGE },
           { role: "user", content: userPrompt },
@@ -97,7 +100,7 @@ export async function POST(req: NextRequest) {
       }),
     });
 
-    if (!openaiRes.ok) {
+    if (!openaiRes.ok || !openaiRes.body) {
       const err = await openaiRes.text();
       return NextResponse.json(
         { error: `OpenAI responded with ${openaiRes.status}: ${err}` },
@@ -105,10 +108,14 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    const result = await openaiRes.json();
-    const output: string = result.choices?.[0]?.message?.content ?? "";
-
-    return NextResponse.json({ output });
+    return new Response(openaiRes.body, {
+      headers: {
+        "Content-Type": "text/event-stream",
+        "Cache-Control": "no-cache",
+        "Connection": "keep-alive",
+        "X-Accel-Buffering": "no",
+      },
+    });
   } catch (e) {
     return NextResponse.json(
       { error: e instanceof Error ? e.message : "Unknown error" },

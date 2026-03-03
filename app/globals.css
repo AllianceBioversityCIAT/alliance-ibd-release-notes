@@ -219,6 +219,15 @@ body {
 }
 
 
+@keyframes blink {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0; }
+}
+
+.animate-blink {
+  animation: blink 1s step-start infinite;
+}
+
 .ai-glow-overlay {
   background:
     radial-gradient(ellipse at 35% 25%, rgba(168, 85, 247, 0.18) 0%, transparent 50%),

@@ -15,7 +15,7 @@ import {
 import "@xyflow/react/dist/style.css";
 
 import type { LocalMediaItem } from "@/app/lib/types";
-import { fetchJiraContext, fetchCommits, generateReleaseNote, uploadFilesSequentially } from "@/app/lib/api";
+import { fetchJiraContext, fetchCommits, streamReleaseNote, uploadFilesSequentially } from "@/app/lib/api";
 import { saveNote } from "@/app/lib/history";
 import { flowNodeTypes } from "./flow-nodes";
 import { TrashIcon, PlusIcon } from "./icons";
@@ -67,10 +67,11 @@ function findPos(nds: Node[], id: string) {
 
 interface FlowViewProps {
   onFullscreenMarkdown: (markdown: string) => void;
+  onStreamingChange?: (streaming: boolean) => void;
   onSwitchView: (mode: "panoramic" | "workspace") => void;
 }
 
-export function FlowView({ onFullscreenMarkdown, onSwitchView }: FlowViewProps) {
+export function FlowView({ onFullscreenMarkdown, onStreamingChange, onSwitchView }: FlowViewProps) {
   const [nodes, setNodes, onNodesChange] = useNodesState([] as Node[]);
   const [edges, setEdges, onEdgesChange] = useEdgesState([] as Edge[]);
 
@@ -160,44 +161,66 @@ export function FlowView({ onFullscreenMarkdown, onSwitchView }: FlowViewProps) 
     };
 
     const handleGenerate = async (localMedia: LocalMediaItem[]) => {
-      const genIn = nid(prefix, "generate-input"), genLoad = nid(prefix, "generate-loading"), genRes = nid(prefix, "generate-result");
+      const genIn = nid(prefix, "generate-input");
+      const genLoad = nid(prefix, "generate-loading");
+      const genRes = nid(prefix, "generate-result");
 
       setNodes((nds) => {
         const p = findPos(nds, genIn);
         return [
           ...nds.map((n) => n.id === genIn ? { ...n, data: { ...n.data, disabled: true } } : n),
-          { id: genLoad, type: "loading", position: { x: p.x + BELOW.dx, y: p.y + BELOW.dy }, data: { label: "Uploading files & generating...", color: "#7c3aed" } } as Node,
+          { id: genLoad, type: "loading", position: { x: p.x + BELOW.dx, y: p.y + BELOW.dy },
+            data: { label: "Uploading files & generating...", color: "#7c3aed" } } as Node,
         ];
       });
       setEdges((eds) => [...eds, mkEdge(genIn, "bottom", genLoad, "top")]);
 
       try {
-        // Upload files to S3 first
         const files = localMedia.map((m) => m.file);
         const urls = files.length > 0 ? await uploadFilesSequentially(files) : [];
         const media = urls.map((url, i) => ({ url, ai_context: localMedia[i]?.ai_context || "" }));
 
         const s = st();
-        const data = await generateReleaseNote({ owner: s.owner, repo: s.repo, branch: s.branch, jira_ticket: s.jiraKey, media });
-        const firstHeading = data.output.match(/^#\s+(.+)$/m)?.[1] || s.jiraKey;
-        saveNote({ jiraKey: s.jiraKey, title: firstHeading, markdown: data.output });
-        onFullscreenMarkdown(data.output);
+        let accumulated = "";
+        let isFirstChunk = true;
 
-        setNodes((nds) => {
-          const p = findPos(nds, genIn);
-          return [
-            ...nds.filter((n) => n.id !== genLoad),
-            { id: genRes, type: "result", position: { x: p.x + BELOW.dx, y: p.y + BELOW.dy }, style: { width: 750 },
-              data: { markdown: data.output, title: "Release Note", color: "#7c3aed", icon: "ai", onFullscreen: () => onFullscreenMarkdown(data.output) } } as Node,
-          ];
-        });
-        setEdges((eds) => [
-          ...eds.filter((e) => !e.id.includes(genLoad)),
-          mkEdge(genIn, "bottom", genRes, "top"),
-        ]);
+        onStreamingChange?.(true);
+
+        for await (const chunk of streamReleaseNote({ owner: s.owner, repo: s.repo, branch: s.branch, jira_ticket: s.jiraKey, media })) {
+          accumulated += chunk;
+
+          if (isFirstChunk) {
+            isFirstChunk = false;
+            setNodes((nds) => {
+              const p = findPos(nds, genIn);
+              return [
+                ...nds.filter((n) => n.id !== genLoad),
+                { id: genRes, type: "result", position: { x: p.x + BELOW.dx, y: p.y + BELOW.dy }, style: { width: 750 },
+                  data: { markdown: accumulated, title: "Release Note", color: "#7c3aed", icon: "ai", streaming: true,
+                    onFullscreen: () => onFullscreenMarkdown(accumulated) } } as Node,
+              ];
+            });
+            setEdges((eds) => [...eds.filter((e) => !e.id.includes(genLoad)), mkEdge(genIn, "bottom", genRes, "top")]);
+            onFullscreenMarkdown(accumulated);
+          } else {
+            setNodes((nds) => nds.map((n) =>
+              n.id === genRes
+                ? { ...n, data: { ...n.data, markdown: accumulated, onFullscreen: () => onFullscreenMarkdown(accumulated) } }
+                : n
+            ));
+            onFullscreenMarkdown(accumulated);
+          }
+        }
+
+        const firstHeading = accumulated.match(/^#\s+(.+)$/m)?.[1] || s.jiraKey;
+        saveNote({ jiraKey: s.jiraKey, title: firstHeading, markdown: accumulated });
+        onStreamingChange?.(false);
+        setNodes((nds) => nds.map((n) => n.id === genRes ? { ...n, data: { ...n.data, streaming: false } } : n));
       } catch (err) {
-        setNodes((nds) => nds.filter((n) => n.id !== genLoad).map((n) => n.id === genIn ? { ...n, data: { ...n.data, disabled: false, onSubmit: (m: LocalMediaItem[]) => handleGenerate(m) } } : n));
-        setEdges((eds) => eds.filter((e) => !e.id.includes(genLoad)));
+        onStreamingChange?.(false);
+        setNodes((nds) => nds.filter((n) => n.id !== genLoad && n.id !== genRes)
+          .map((n) => n.id === genIn ? { ...n, data: { ...n.data, disabled: false, onSubmit: (m: LocalMediaItem[]) => handleGenerate(m) } } : n));
+        setEdges((eds) => eds.filter((e) => !e.id.includes(genLoad) && !e.id.includes(genRes)));
         alert(`Generate error: ${err instanceof Error ? err.message : "Unknown error"}`);
       }
     };

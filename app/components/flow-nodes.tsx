@@ -238,12 +238,13 @@ export const LoadingNode = memo(function LoadingNode({ data }: NodeProps) {
    Handles: target-top (↑ from input), source-right (→ to next step)
    ═══════════════════════════════════════════════════ */
 export const ResultNode = memo(function ResultNode({ data }: NodeProps) {
-  const { markdown, title, color, icon, onFullscreen } = data as {
+  const { markdown, title, color, icon, onFullscreen, streaming } = data as {
     markdown: string;
     title: string;
     color: string;
     icon: "jira" | "github" | "ai";
     onFullscreen?: () => void;
+    streaming?: boolean;
   };
 
   const IconComponent = icon === "jira" ? JiraIcon : icon === "github" ? GitHubIcon : AIIcon;
@@ -269,6 +270,9 @@ export const ResultNode = memo(function ResultNode({ data }: NodeProps) {
       {/* Content — auto height, no scroll needed */}
       <div className="p-4 bg-white">
         <MarkdownRenderer content={markdown} />
+        {streaming && (
+          <span aria-hidden="true" className="inline-block h-4 w-0.5 bg-purple-600 align-middle ml-0.5 animate-blink" />
+        )}
       </div>
       <Handle type="source" position={Position.Right} id="right" style={hRight} />
     </div>

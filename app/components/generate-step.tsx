@@ -15,9 +15,10 @@ interface GenerateStepProps {
   loading: boolean;
   error: string | null;
   result: string | null;
+  streaming?: boolean;
 }
 
-export function GenerateStep({ media, onMediaChange, onGenerate, onFullscreen, loading, error, result }: GenerateStepProps) {
+export function GenerateStep({ media, onMediaChange, onGenerate, onFullscreen, loading, error, result, streaming }: GenerateStepProps) {
   function removeMedia(index: number) {
     const item = media[index];
     if (item.previewUrl) URL.revokeObjectURL(item.previewUrl);
@@ -128,31 +129,38 @@ export function GenerateStep({ media, onMediaChange, onGenerate, onFullscreen, l
         <div className="animate-slide-up space-y-4">
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-2">
-              <div className="h-2 w-2 rounded-full bg-success" />
-              <span className="text-sm font-medium text-success">Release note generated</span>
+              <div className={`h-2 w-2 rounded-full ${streaming ? "bg-accent animate-pulse" : "bg-success"}`} />
+              <span className={`text-sm font-medium ${streaming ? "text-accent" : "text-success"}`}>
+                {streaming ? "Generating..." : "Release note generated"}
+              </span>
             </div>
-            <div className="flex items-center gap-2">
-              <button
-                onClick={onGenerate}
-                className="btn-press inline-flex items-center gap-1.5 rounded-md border border-card-border bg-card px-2.5 py-1.5 text-xs font-medium text-foreground transition-colors hover:bg-muted"
-              >
-                <SparklesIcon className="w-3.5 h-3.5" />
-                Regenerate
-              </button>
-              {onFullscreen && (
+            {!streaming && (
+              <div className="flex items-center gap-2">
                 <button
-                  onClick={onFullscreen}
+                  onClick={onGenerate}
                   className="btn-press inline-flex items-center gap-1.5 rounded-md border border-card-border bg-card px-2.5 py-1.5 text-xs font-medium text-foreground transition-colors hover:bg-muted"
                 >
-                  <ExpandIcon className="w-3.5 h-3.5" />
-                  Fullscreen
+                  <SparklesIcon className="w-3.5 h-3.5" />
+                  Regenerate
                 </button>
-              )}
-              <CopyButton text={result} />
-            </div>
+                {onFullscreen && (
+                  <button
+                    onClick={onFullscreen}
+                    className="btn-press inline-flex items-center gap-1.5 rounded-md border border-card-border bg-card px-2.5 py-1.5 text-xs font-medium text-foreground transition-colors hover:bg-muted"
+                  >
+                    <ExpandIcon className="w-3.5 h-3.5" />
+                    Fullscreen
+                  </button>
+                )}
+                <CopyButton text={result} />
+              </div>
+            )}
           </div>
           <div className="rounded-lg border border-card-border bg-muted/50 p-5 sm:p-6">
             <MarkdownRenderer content={result} />
+            {streaming && (
+              <span aria-hidden="true" className="inline-block h-4 w-0.5 bg-accent align-middle ml-0.5 animate-blink" />
+            )}
           </div>
         </div>
       )}

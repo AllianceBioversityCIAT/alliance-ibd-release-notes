@@ -4,7 +4,7 @@ import { useState, useCallback, useEffect, useRef, Fragment } from "react";
 import dynamic from "next/dynamic";
 import { DEFAULTS } from "@/app/lib/constants";
 import type { LocalMediaItem } from "@/app/lib/types";
-import { fetchJiraContext, fetchCommits, generateReleaseNote, uploadFilesSequentially } from "@/app/lib/api";
+import { fetchJiraContext, fetchCommits, streamReleaseNote, uploadFilesSequentially } from "@/app/lib/api";
 import { saveNote } from "@/app/lib/history";
 import { JiraStep } from "./jira-step";
 import { GitHubStep } from "./github-step";
@@ -22,6 +22,7 @@ const FlowView = dynamic(
   () => import("./flow-view").then((m) => m.FlowView),
   { ssr: false }
 );
+
 
 const ParticleScene = dynamic(
   () => import("./three/particle-background").then((m) => m.ParticleScene),
@@ -50,6 +51,7 @@ export function ImmersiveWizard() {
   const [generateLoading, setGenerateLoading] = useState(false);
   const [generateError, setGenerateError] = useState<string | null>(null);
   const [generateResult, setGenerateResult] = useState<string | null>(null);
+  const [generateStreaming, setGenerateStreaming] = useState(false);
 
   // UI
   const [historyOpen, setHistoryOpen] = useState(false);
@@ -57,6 +59,7 @@ export function ImmersiveWizard() {
   const [activeStep, setActiveStep] = useState(1);
   const [mouse, setMouse] = useState({ x: 0, y: 0 });
   const [markdownFullscreen, setMarkdownFullscreen] = useState(false);
+  const fullscreenScrollRef = useRef<HTMLDivElement>(null);
 
   // Mouse tracking (state for particles, ref for background)
   const mouseTargetRef = useRef({ x: 0, y: 0 });
@@ -70,6 +73,15 @@ export function ImmersiveWizard() {
     window.addEventListener("mousemove", onMove);
     return () => window.removeEventListener("mousemove", onMove);
   }, []);
+
+
+  // Auto-scroll fullscreen to bottom while streaming
+  useEffect(() => {
+    if (generateStreaming && fullscreenScrollRef.current) {
+      const el = fullscreenScrollRef.current;
+      el.scrollTop = el.scrollHeight;
+    }
+  }, [generateResult, generateStreaming]);
 
   // Smooth panoramic background animation (GPU-accelerated)
   const bgElRef = useRef<HTMLDivElement>(null);
@@ -161,33 +173,44 @@ export function ImmersiveWizard() {
     setGenerateLoading(true);
     setGenerateError(null);
     setGenerateResult(null);
+    setGenerateStreaming(false);
+
+    let accumulated = "";
+    let isFirstChunk = true;
+    let errorOccurred = false;
+
     try {
-      // 1. Upload files to S3 sequentially
       const files = media.map((m) => m.file);
       const urls = files.length > 0 ? await uploadFilesSequentially(files) : [];
+      const mediaPayload = urls.map((url, i) => ({ url, ai_context: media[i]?.ai_context || "" }));
 
-      // 2. Build media array with S3 URLs + AI context
-      const mediaPayload = urls.map((url, i) => ({
-        url,
-        ai_context: media[i]?.ai_context || "",
-      }));
+      for await (const chunk of streamReleaseNote({ owner, repo, branch, jira_ticket: issueKey.trim(), media: mediaPayload })) {
+        if (isFirstChunk) {
+          isFirstChunk = false;
+          setGenerateLoading(false);
+          setGenerateStreaming(true);
+          setMarkdownFullscreen(true);
+        }
+        accumulated += chunk;
+        setGenerateResult(accumulated);
+      }
 
-      // 3. Generate release note
-      const data = await generateReleaseNote({
-        owner,
-        repo,
-        branch,
-        jira_ticket: issueKey.trim(),
-        media: mediaPayload,
-      });
-      setGenerateResult(data.output);
-      setMarkdownFullscreen(true);
-      const firstHeading = data.output.match(/^#\s+(.+)$/m)?.[1] || issueKey.trim();
-      saveNote({ jiraKey: issueKey.trim(), title: firstHeading, markdown: data.output });
+      if (accumulated) {
+        const firstHeading = accumulated.match(/^#\s+(.+)$/m)?.[1] || issueKey.trim();
+        saveNote({ jiraKey: issueKey.trim(), title: firstHeading, markdown: accumulated });
+      }
+      setGenerateStreaming(false);
     } catch (e) {
+      errorOccurred = true;
       setGenerateError(e instanceof Error ? e.message : "Failed to generate release note");
-    } finally {
       setGenerateLoading(false);
+      setGenerateStreaming(false);
+    } finally {
+      if (isFirstChunk && !errorOccurred) {
+        setGenerateLoading(false);
+        setGenerateStreaming(false);
+        setGenerateError("No content returned. Please try again.");
+      }
     }
   }, [owner, repo, branch, issueKey, media]);
 
@@ -261,6 +284,7 @@ export function ImmersiveWizard() {
           loading={generateLoading}
           error={generateError}
           result={generateResult}
+          streaming={generateStreaming}
         />
       ),
     },
@@ -422,6 +446,7 @@ export function ImmersiveWizard() {
               setGenerateResult(md);
               setMarkdownFullscreen(true);
             }}
+            onStreamingChange={(s: boolean) => setGenerateStreaming(s)}
             onSwitchView={(mode) => setViewMode(mode)}
           />
         </div>
@@ -526,8 +551,10 @@ export function ImmersiveWizard() {
               <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-gradient-to-br from-purple-500 to-violet-600 text-white">
                 <SparklesIcon className="w-4 h-4" />
               </div>
-              <span className="text-sm font-semibold text-gray-900">Release Note</span>
-              <div className="h-2 w-2 rounded-full bg-emerald-500" />
+              <span className="text-sm font-semibold text-gray-900">
+                {generateStreaming ? "Generating..." : "Release Note"}
+              </span>
+              <div className={`h-2 w-2 rounded-full ${generateStreaming ? "bg-accent animate-pulse" : "bg-emerald-500"}`} />
             </div>
             <div className="flex items-center gap-2">
               <CopyButton text={generateResult} />
@@ -540,9 +567,12 @@ export function ImmersiveWizard() {
               </button>
             </div>
           </div>
-          <div className="flex-1 overflow-y-auto p-6 sm:p-10">
+          <div ref={fullscreenScrollRef} className="flex-1 overflow-y-auto p-6 sm:p-10">
             <div className="mx-auto max-w-3xl">
               <MarkdownRenderer content={generateResult} />
+              {generateStreaming && (
+                <span aria-hidden="true" className="inline-block h-4 w-0.5 bg-accent align-middle ml-0.5 animate-blink" />
+              )}
             </div>
           </div>
         </div>
