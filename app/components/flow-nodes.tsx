@@ -309,6 +309,7 @@ export const ResultNode = memo(function ResultNode({ data }: NodeProps) {
         )}
       </div>
       <Handle type="source" position={Position.Right} id="right" style={hRight} />
+      <Handle type="source" position={Position.Bottom} id="bottom" style={hBottom} />
     </div>
   );
 });

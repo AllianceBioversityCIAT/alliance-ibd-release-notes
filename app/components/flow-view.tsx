@@ -335,6 +335,41 @@ export function FlowView({ onFullscreenMarkdown, onStreamingChange, onSwitchView
   const edgesRef = useRef(edges);
   edgesRef.current = edges;
 
+  /* ── Reposition jira-sub-* nodes once measured parent heights are known ── */
+  const measuredHeightsRef = useRef<Record<string, number>>({});
+  useEffect(() => {
+    // Track whether any relevant parent node changed its measured height
+    let parentChanged = false;
+    for (const n of nodes) {
+      if (!/-jira-(result|sub)-/.test(n.id)) continue;
+      const h = (n.measured as { height?: number } | undefined)?.height;
+      if (h == null) continue;
+      if (measuredHeightsRef.current[n.id] !== h) {
+        measuredHeightsRef.current[n.id] = h;
+        parentChanged = true;
+      }
+    }
+    if (!parentChanged) return;
+
+    setNodes((nds) => {
+      let changed = false;
+      const next = nds.map((n) => {
+        if (!/-jira-sub-/.test(n.id)) return n;
+        const parentEdge = edgesRef.current.find((e) => e.target === n.id);
+        if (!parentEdge) return n;
+        const parent = nds.find((p) => p.id === parentEdge.source);
+        const ph = (parent?.measured as { height?: number } | undefined)?.height;
+        if (!parent || ph == null) return n;
+        const newY = parent.position.y + ph + 50;
+        if (Math.abs(n.position.y - newY) <= 2) return n;
+        changed = true;
+        return { ...n, position: { x: n.position.x, y: newY } };
+      });
+      return changed ? next : nds;
+    });
+  }, [nodes]);
+
+  /* ── Save canvas on every change ── */
   useEffect(() => {
     if (!initDone.current) return;
     const serializable = nodesRef.current.map((n) => {
