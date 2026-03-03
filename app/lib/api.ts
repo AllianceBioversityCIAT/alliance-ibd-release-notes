@@ -1,4 +1,4 @@
-import type { JiraResponse, CommitsResponse, GenerateResponse } from "./types";
+import type { JiraResponse, CommitsResponse, GenerateResponse, NotionPublishResult } from "./types";
 
 async function post<T>(url: string, body: Record<string, unknown>): Promise<T> {
   const res = await fetch(url, {
@@ -85,6 +85,22 @@ export async function* streamReleaseNote(params: {
   } finally {
     reader.releaseLock();
   }
+}
+
+export async function getNotionOptions(): Promise<{ tags: string[]; projects: string[] }> {
+  const r = await fetch("/api/release-notes/notion");
+  return r.json();
+}
+
+export function publishToNotion(params: {
+  title: string;
+  brief_description: string;
+  tag: string;
+  projects: string[];
+  released_date: string;
+  markdown: string;
+}) {
+  return post<NotionPublishResult>("/api/release-notes/notion", params);
 }
 
 /** Upload a single file to S3 via n8n. Returns the S3 Location URL. */

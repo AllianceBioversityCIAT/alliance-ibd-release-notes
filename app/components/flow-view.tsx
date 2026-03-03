@@ -15,7 +15,7 @@ import {
 import "@xyflow/react/dist/style.css";
 
 import type { LocalMediaItem, JiraChild } from "@/app/lib/types";
-import { fetchJiraContext, fetchCommits, streamReleaseNote, uploadFilesSequentially } from "@/app/lib/api";
+import { fetchJiraContext, fetchCommits, streamReleaseNote, uploadFilesSequentially, publishToNotion } from "@/app/lib/api";
 import { saveNote } from "@/app/lib/history";
 import { flowNodeTypes } from "./flow-nodes";
 import { TrashIcon, PlusIcon } from "./icons";
@@ -316,7 +316,21 @@ export function FlowView({ onFullscreenMarkdown, onStreamingChange, onSwitchView
         const firstHeading = accumulated.match(/^#\s+(.+)$/m)?.[1] || s.jiraKey;
         saveNote({ jiraKey: s.jiraKey, title: firstHeading, markdown: accumulated });
         onStreamingChange?.(false);
-        setNodes((nds) => nds.map((n) => n.id === genRes ? { ...n, data: { ...n.data, streaming: false } } : n));
+        const finalMd = accumulated;
+        setNodes((nds) => nds.map((n) => n.id === genRes ? {
+          ...n, data: {
+            ...n.data, streaming: false,
+            onPublishNotion: (payload: { tag: string; projects: string[]; brief_description: string }) =>
+              publishToNotion({
+                title: firstHeading,
+                brief_description: payload.brief_description,
+                tag: payload.tag,
+                projects: payload.projects,
+                released_date: new Date().toISOString().split("T")[0],
+                markdown: finalMd,
+              }),
+          },
+        } : n));
       } catch (err) {
         onStreamingChange?.(false);
         setNodes((nds) => nds.filter((n) => n.id !== genLoad && n.id !== genRes)

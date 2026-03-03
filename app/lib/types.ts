@@ -42,6 +42,17 @@ export interface LocalMediaItem {
   type: "image" | "video" | "file";
 }
 
+export interface NotionPublishPayload {
+  tag: string;
+  projects: string[];
+  brief_description: string;
+}
+
+export interface NotionPublishResult {
+  url: string;
+  id: string;
+}
+
 export interface StepStatus {
   loading: boolean;
   error: string | null;
