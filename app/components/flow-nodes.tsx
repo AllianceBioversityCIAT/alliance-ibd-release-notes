@@ -4,7 +4,7 @@ import { memo, useState } from "react";
 import { Handle, Position, type NodeProps } from "@xyflow/react";
 import { DEFAULTS } from "@/app/lib/constants";
 import type { LocalMediaItem } from "@/app/lib/types";
-import { LoaderIcon, TrashIcon, ImageIcon, ExpandIcon } from "./icons";
+import { LoaderIcon, TrashIcon, ImageIcon, ExpandIcon, XIcon, PlusIcon } from "./icons";
 import { MarkdownRenderer } from "./markdown-renderer";
 import { CopyButton } from "./copy-button";
 import { JiraIcon, GitHubIcon, AIIcon } from "./brand-icons";
@@ -22,13 +22,21 @@ const hLeft = { ...hRight };
    ═══════════════════════════════════════════════════ */
 export const JiraInputNode = memo(function JiraInputNode({ data }: NodeProps) {
   const { onSubmit, disabled } = data as {
-    onSubmit: (issueKey: string) => void;
+    onSubmit: (issueKeys: string[]) => void;
     disabled: boolean;
   };
-  const [key, setKey] = useState("");
+  const [keys, setKeys] = useState([""]);
+
+  function updateKey(i: number, v: string) {
+    const next = [...keys]; next[i] = v.toUpperCase(); setKeys(next);
+  }
+  function addKey() { setKeys([...keys, ""]); }
+  function removeKey(i: number) { if (keys.length > 1) setKeys(keys.filter((_, idx) => idx !== i)); }
+
+  const validKeys = keys.filter((k) => k.trim());
 
   return (
-    <div className={`rounded-2xl border-2 shadow-xl w-[280px] transition-all ${disabled ? "border-gray-600 bg-gray-800/80" : "border-blue-500/60 bg-[#1e1e38]"}`}>
+    <div className={`rounded-2xl border-2 shadow-xl w-[300px] transition-all ${disabled ? "border-gray-600 bg-gray-800/80" : "border-blue-500/60 bg-[#1e1e38]"}`}>
       <div className="flex items-center gap-2 px-4 py-3 rounded-t-2xl" style={{ background: "linear-gradient(135deg, rgba(0,82,204,0.25), transparent)" }}>
         <div className="flex h-7 w-7 items-center justify-center rounded-lg text-white shadow-md" style={{ background: "#0052CC" }}>
           <JiraIcon className="w-4 h-4" />
@@ -36,29 +44,41 @@ export const JiraInputNode = memo(function JiraInputNode({ data }: NodeProps) {
         <span className="text-sm font-semibold text-white">Jira Context</span>
         {disabled && <span className="ml-auto text-[10px] font-medium text-emerald-400 bg-emerald-500/20 rounded-full px-2 py-0.5">Done</span>}
       </div>
-      <div className="p-4 space-y-3 border-t border-white/5">
-        <input
-          type="text"
-          value={key}
-          onChange={(e) => setKey(e.target.value.toUpperCase())}
-          placeholder={DEFAULTS.jiraPlaceholder}
-          disabled={disabled}
-          className="w-full rounded-lg border border-white/10 bg-white/5 px-3 py-2 text-sm text-white placeholder:text-white/30 outline-none focus:ring-2 focus:ring-blue-500/50 focus:border-blue-500/50 disabled:opacity-40"
-          onKeyDown={(e) => { if (e.key === "Enter" && key.trim() && !disabled) onSubmit(key.trim()); }}
-        />
+      <div className="p-4 space-y-2 border-t border-white/5">
+        {keys.map((k, i) => (
+          <div key={i} className="flex items-center gap-1.5">
+            <input
+              type="text"
+              value={k}
+              onChange={(e) => updateKey(i, e.target.value)}
+              placeholder={i === 0 ? DEFAULTS.jiraPlaceholder : "e.g. P2-2161"}
+              disabled={disabled}
+              className="flex-1 rounded-lg border border-white/10 bg-white/5 px-3 py-2 text-sm text-white placeholder:text-white/30 outline-none focus:ring-2 focus:ring-blue-500/50 focus:border-blue-500/50 disabled:opacity-40"
+              onKeyDown={(e) => { if (e.key === "Enter" && validKeys.length > 0 && !disabled) onSubmit(validKeys); }}
+            />
+            {keys.length > 1 && !disabled && (
+              <button onClick={() => removeKey(i)} className="p-1.5 rounded text-white/30 hover:text-red-400 hover:bg-red-500/10 transition-colors">
+                <XIcon className="w-3 h-3" />
+              </button>
+            )}
+          </div>
+        ))}
+        {!disabled && (
+          <button onClick={addKey} className="flex items-center gap-1 text-[11px] text-white/40 hover:text-blue-400 transition-colors">
+            <PlusIcon className="w-3 h-3" /> Add another key
+          </button>
+        )}
         {!disabled && (
           <button
-            onClick={() => key.trim() && onSubmit(key.trim())}
-            disabled={!key.trim()}
-            className="w-full rounded-lg bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700 disabled:opacity-30 transition-colors"
+            onClick={() => validKeys.length > 0 && onSubmit(validKeys)}
+            disabled={validKeys.length === 0}
+            className="w-full rounded-lg bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700 disabled:opacity-30 transition-colors mt-1"
           >
-            Fetch Jira Context
+            {validKeys.length > 1 ? `Fetch ${validKeys.length} Contexts` : "Fetch Jira Context"}
           </button>
         )}
       </div>
-      {/* → to GitHub input */}
       <Handle type="source" position={Position.Right} id="right" style={hRight} />
-      {/* ↓ to result */}
       <Handle type="source" position={Position.Bottom} id="bottom" style={hBottom} />
     </div>
   );

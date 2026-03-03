@@ -33,7 +33,7 @@ type ViewMode = "panoramic" | "workspace" | "flow";
 
 export function ImmersiveWizard() {
   // Form state
-  const [issueKey, setIssueKey] = useState("");
+  const [issueKeys, setIssueKeys] = useState<string[]>([""]);
   const [owner, setOwner] = useState<string>(DEFAULTS.owner);
   const [repo, setRepo] = useState<string>(DEFAULTS.repo);
   const [branch, setBranch] = useState<string>(DEFAULTS.branch);
@@ -143,7 +143,8 @@ export function ImmersiveWizard() {
     setGenerateResult(null);
     setGenerateError(null);
     try {
-      const data = await fetchJiraContext(issueKey.trim());
+      const validKeys = issueKeys.filter((k) => k.trim());
+      const data = await fetchJiraContext(validKeys);
       setJiraResult(data.jira_context);
       setActiveStep(2);
     } catch (e) {
@@ -151,7 +152,7 @@ export function ImmersiveWizard() {
     } finally {
       setJiraLoading(false);
     }
-  }, [issueKey]);
+  }, [issueKeys]);
 
   const handleFetchCommits = useCallback(async () => {
     setCommitsLoading(true);
@@ -159,7 +160,7 @@ export function ImmersiveWizard() {
     setGenerateResult(null);
     setGenerateError(null);
     try {
-      const data = await fetchCommits({ owner, repo, branch, jira_ticket: issueKey.trim() });
+      const data = await fetchCommits({ owner, repo, branch, jira_ticket: issueKeys[0]?.trim() ?? "" });
       setCommitsResult(data.release_notes_input);
       setActiveStep(3);
     } catch (e) {
@@ -167,7 +168,7 @@ export function ImmersiveWizard() {
     } finally {
       setCommitsLoading(false);
     }
-  }, [owner, repo, branch, issueKey]);
+  }, [owner, repo, branch, issueKeys]);
 
   const handleGenerate = useCallback(async () => {
     setGenerateLoading(true);
@@ -184,7 +185,8 @@ export function ImmersiveWizard() {
       const urls = files.length > 0 ? await uploadFilesSequentially(files) : [];
       const mediaPayload = urls.map((url, i) => ({ url, ai_context: media[i]?.ai_context || "" }));
 
-      for await (const chunk of streamReleaseNote({ owner, repo, branch, jira_ticket: issueKey.trim(), media: mediaPayload })) {
+      const validJiraKeys = issueKeys.filter((k) => k.trim());
+      for await (const chunk of streamReleaseNote({ owner, repo, branch, jira_tickets: validJiraKeys, media: mediaPayload })) {
         if (isFirstChunk) {
           isFirstChunk = false;
           setGenerateLoading(false);
@@ -196,8 +198,9 @@ export function ImmersiveWizard() {
       }
 
       if (accumulated) {
-        const firstHeading = accumulated.match(/^#\s+(.+)$/m)?.[1] || issueKey.trim();
-        saveNote({ jiraKey: issueKey.trim(), title: firstHeading, markdown: accumulated });
+        const primaryKey = issueKeys[0]?.trim() ?? "";
+        const firstHeading = accumulated.match(/^#\s+(.+)$/m)?.[1] || primaryKey;
+        saveNote({ jiraKey: primaryKey, title: firstHeading, markdown: accumulated });
       }
       setGenerateStreaming(false);
     } catch (e) {
@@ -212,7 +215,7 @@ export function ImmersiveWizard() {
         setGenerateError("No content returned. Please try again.");
       }
     }
-  }, [owner, repo, branch, issueKey, media]);
+  }, [owner, repo, branch, issueKeys, media]);
 
   // Step nav icons
   const steps = [
@@ -236,8 +239,8 @@ export function ImmersiveWizard() {
       isComplete: !!jiraResult,
       content: (
         <JiraStep
-          issueKey={issueKey}
-          onIssueKeyChange={setIssueKey}
+          issueKeys={issueKeys}
+          onIssueKeysChange={setIssueKeys}
           onFetch={handleFetchJira}
           loading={jiraLoading}
           error={jiraError}
@@ -257,7 +260,7 @@ export function ImmersiveWizard() {
           owner={owner}
           repo={repo}
           branch={branch}
-          jiraTicket={issueKey}
+          jiraTicket={issueKeys[0] ?? ""}
           onOwnerChange={setOwner}
           onRepoChange={setRepo}
           onBranchChange={setBranch}

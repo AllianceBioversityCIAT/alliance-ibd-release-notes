@@ -83,30 +83,36 @@ export function FlowView({ onFullscreenMarkdown, onStreamingChange, onSwitchView
   function makeHandlers(prefix: string) {
     const st = () => flowStatesRef.current[prefix];
 
-    const handleJira = async (issueKey: string) => {
-      flowStatesRef.current[prefix].jiraKey = issueKey;
+    const handleJira = async (issueKeys: string[]) => {
+      const primaryKey = issueKeys[0] ?? "";
+      flowStatesRef.current[prefix].jiraKey = primaryKey;
       const jIn = nid(prefix, "jira-input"), jLoad = nid(prefix, "jira-loading");
       const jRes = nid(prefix, "jira-result"), gIn = nid(prefix, "github-input");
+
+      const label = issueKeys.length > 1
+        ? `Fetching ${issueKeys.length} Jira contexts...`
+        : "Fetching Jira Context...";
 
       setNodes((nds) => {
         const p = findPos(nds, jIn);
         return [
           ...nds.map((n) => n.id === jIn ? { ...n, data: { ...n.data, disabled: true } } : n),
-          { id: jLoad, type: "loading", position: { x: p.x + BELOW.dx, y: p.y + BELOW.dy }, data: { label: "Fetching Jira Context...", color: "#0052CC" } } as Node,
+          { id: jLoad, type: "loading", position: { x: p.x + BELOW.dx, y: p.y + BELOW.dy }, data: { label, color: "#0052CC" } } as Node,
         ];
       });
       setEdges((eds) => [...eds, mkEdge(jIn, "bottom", jLoad, "top")]);
 
       try {
-        const data = await fetchJiraContext(issueKey);
+        const data = await fetchJiraContext(issueKeys);
+        const title = issueKeys.length > 1 ? `Jira: ${issueKeys.join(", ")}` : `Jira: ${primaryKey}`;
         setNodes((nds) => {
-          const p = findPos(nds, jIn); // read current pos again
+          const p = findPos(nds, jIn);
           return [
             ...nds.filter((n) => n.id !== jLoad),
             { id: jRes, type: "result", position: { x: p.x + BELOW.dx, y: p.y + BELOW.dy }, style: { width: 700 },
-              data: { markdown: data.jira_context, title: `Jira: ${issueKey}`, color: "#0052CC", icon: "jira", onFullscreen: () => onFullscreenMarkdown(data.jira_context) } } as Node,
+              data: { markdown: data.jira_context, title, color: "#0052CC", icon: "jira", onFullscreen: () => onFullscreenMarkdown(data.jira_context) } } as Node,
             { id: gIn, type: "githubInput", position: { x: p.x + RIGHT.dx, y: p.y + RIGHT.dy },
-              data: { jiraTicket: issueKey, onSubmit: (o: string, r: string, b: string) => handleGitHub(o, r, b), disabled: false } } as Node,
+              data: { jiraTicket: primaryKey, onSubmit: (o: string, r: string, b: string) => handleGitHub(o, r, b), disabled: false } } as Node,
           ];
         });
         setEdges((eds) => [
@@ -186,7 +192,7 @@ export function FlowView({ onFullscreenMarkdown, onStreamingChange, onSwitchView
 
         onStreamingChange?.(true);
 
-        for await (const chunk of streamReleaseNote({ owner: s.owner, repo: s.repo, branch: s.branch, jira_ticket: s.jiraKey, media })) {
+        for await (const chunk of streamReleaseNote({ owner: s.owner, repo: s.repo, branch: s.branch, jira_tickets: [s.jiraKey], media })) {
           accumulated += chunk;
 
           if (isFirstChunk) {

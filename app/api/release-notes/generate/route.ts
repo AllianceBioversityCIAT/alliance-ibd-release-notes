@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { buildJiraContext } from "../_lib/jira";
+import { buildJiraContextMulti } from "../_lib/jira";
 import { fetchGitHubCommits, filterAndFormatCommits } from "../_lib/github";
 
 export const dynamic = "force-dynamic";
@@ -63,11 +63,14 @@ Use your judgment to place each media item in the section where it fits best bas
 
 export async function POST(req: NextRequest) {
   try {
-    const { owner, repo, branch, jira_ticket, media } = await req.json();
+    const { owner, repo, branch, jira_ticket, jira_tickets, media } = await req.json();
+    // Accept jira_tickets (array) or legacy jira_ticket (string)
+    const jiraKeys: string[] =
+      jira_tickets ?? (jira_ticket ? [jira_ticket] : []);
 
     // Fetch Jira (with recursive subtask tree) and GitHub in parallel
-    const [{ jira_context, reporter }, commits] = await Promise.all([
-      buildJiraContext(jira_ticket),
+    const [{ jira_context, reporters }, commits] = await Promise.all([
+      buildJiraContextMulti(jiraKeys),
       fetchGitHubCommits(owner, repo, branch),
     ]);
 
@@ -82,7 +85,7 @@ export async function POST(req: NextRequest) {
       `Write a release blog post from this data:\n\n` +
       `${release_notes_input}\n\n` +
       `${jira_context}\n\n` +
-      `Jira Reporter (person who identified and reported this need): ${reporter}\n\n` +
+      `Jira Reporter(s) (people who identified and reported this need): ${reporters.join(", ")}\n\n` +
       `Media assets:\n${mediaSection}`;
 
     const openaiRes = await fetch("https://api.openai.com/v1/chat/completions", {

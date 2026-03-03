@@ -13,8 +13,8 @@ async function post<T>(url: string, body: Record<string, unknown>): Promise<T> {
   return res.json();
 }
 
-export function fetchJiraContext(issueKey: string) {
-  return post<JiraResponse>("/api/release-notes/jira", { issue_key: issueKey });
+export function fetchJiraContext(issueKeys: string[]) {
+  return post<JiraResponse>("/api/release-notes/jira", { issue_keys: issueKeys });
 }
 
 export function fetchCommits(params: {
@@ -30,7 +30,7 @@ export function generateReleaseNote(params: {
   owner: string;
   repo: string;
   branch: string;
-  jira_ticket: string;
+  jira_tickets: string[];
   media: { url: string; ai_context: string }[];
 }) {
   return post<GenerateResponse>("/api/release-notes/generate", params);
@@ -40,7 +40,7 @@ export async function* streamReleaseNote(params: {
   owner: string;
   repo: string;
   branch: string;
-  jira_ticket: string;
+  jira_tickets: string[];
   media: { url: string; ai_context: string }[];
 }): AsyncGenerator<string, void, unknown> {
   const res = await fetch("/api/release-notes/generate", {

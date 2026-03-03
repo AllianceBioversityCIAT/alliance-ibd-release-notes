@@ -277,6 +277,35 @@ export async function buildJiraContext(rootKey: string): Promise<{
 }
 
 /* ─────────────────────────────────────────────
+   Public: build context for multiple keys in parallel
+   ───────────────────────────────────────────── */
+export async function buildJiraContextMulti(keys: string[]): Promise<{
+  jira_context: string;
+  reporters: string[];
+}> {
+  if (keys.length === 0) return { jira_context: "", reporters: [] };
+
+  const results = await Promise.allSettled(keys.map((k) => buildJiraContext(k)));
+
+  const contexts: string[] = [];
+  const reporters: string[] = [];
+
+  for (const result of results) {
+    if (result.status === "fulfilled") {
+      contexts.push(result.value.jira_context);
+      if (result.value.reporter && !reporters.includes(result.value.reporter)) {
+        reporters.push(result.value.reporter);
+      }
+    }
+  }
+
+  return {
+    jira_context: contexts.join("\n\n---\n\n"),
+    reporters,
+  };
+}
+
+/* ─────────────────────────────────────────────
    Legacy: kept for any direct callers
    ───────────────────────────────────────────── */
 export function formatJiraIssue(

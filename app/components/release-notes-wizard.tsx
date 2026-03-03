@@ -15,7 +15,7 @@ import { HistoryIcon } from "./icons";
 
 export function ReleaseNotesWizard() {
   // Form state
-  const [issueKey, setIssueKey] = useState("");
+  const [issueKeys, setIssueKeys] = useState<string[]>([""]);
   const [owner, setOwner] = useState<string>(DEFAULTS.owner);
   const [repo, setRepo] = useState<string>(DEFAULTS.repo);
   const [branch, setBranch] = useState<string>(DEFAULTS.branch);
@@ -50,6 +50,7 @@ export function ReleaseNotesWizard() {
   const currentStep = generateResult ? 3 : commitsResult ? 3 : jiraResult ? 2 : 1;
 
   const handleFetchJira = useCallback(async () => {
+    const validKeys = issueKeys.filter((k) => k.trim());
     setJiraLoading(true);
     setJiraError(null);
     setCommitsResult(null);
@@ -57,14 +58,14 @@ export function ReleaseNotesWizard() {
     setGenerateResult(null);
     setGenerateError(null);
     try {
-      const data = await fetchJiraContext(issueKey.trim());
+      const data = await fetchJiraContext(validKeys);
       setJiraResult(data.jira_context);
     } catch (e) {
       setJiraError(e instanceof Error ? e.message : "Failed to fetch Jira context");
     } finally {
       setJiraLoading(false);
     }
-  }, [issueKey]);
+  }, [issueKeys]);
 
   const handleFetchCommits = useCallback(async () => {
     setCommitsLoading(true);
@@ -76,7 +77,7 @@ export function ReleaseNotesWizard() {
         owner,
         repo,
         branch,
-        jira_ticket: issueKey.trim(),
+        jira_ticket: issueKeys[0]?.trim() ?? "",
       });
       setCommitsResult(data.release_notes_input);
     } catch (e) {
@@ -84,7 +85,7 @@ export function ReleaseNotesWizard() {
     } finally {
       setCommitsLoading(false);
     }
-  }, [owner, repo, branch, issueKey]);
+  }, [owner, repo, branch, issueKeys]);
 
   const handleGenerate = useCallback(async () => {
     setGenerateLoading(true);
@@ -102,18 +103,20 @@ export function ReleaseNotesWizard() {
       }));
 
       // 3. Generate release note
+      const validKeys = issueKeys.filter((k) => k.trim());
+      const primaryKey = validKeys[0] ?? "";
       const data = await generateReleaseNote({
         owner,
         repo,
         branch,
-        jira_ticket: issueKey.trim(),
+        jira_tickets: validKeys,
         media: mediaPayload,
       });
       setGenerateResult(data.output);
 
-      const firstHeading = data.output.match(/^#\s+(.+)$/m)?.[1] || issueKey.trim();
+      const firstHeading = data.output.match(/^#\s+(.+)$/m)?.[1] || primaryKey;
       saveNote({
-        jiraKey: issueKey.trim(),
+        jiraKey: primaryKey,
         title: firstHeading,
         markdown: data.output,
       });
@@ -122,7 +125,7 @@ export function ReleaseNotesWizard() {
     } finally {
       setGenerateLoading(false);
     }
-  }, [owner, repo, branch, issueKey, media]);
+  }, [owner, repo, branch, issueKeys, media]);
 
   return (
     <>
@@ -147,8 +150,8 @@ export function ReleaseNotesWizard() {
           isCompleted={!!jiraResult}
         >
           <JiraStep
-            issueKey={issueKey}
-            onIssueKeyChange={setIssueKey}
+            issueKeys={issueKeys}
+            onIssueKeysChange={setIssueKeys}
             onFetch={handleFetchJira}
             loading={jiraLoading}
             error={jiraError}
@@ -167,7 +170,7 @@ export function ReleaseNotesWizard() {
             owner={owner}
             repo={repo}
             branch={branch}
-            jiraTicket={issueKey}
+            jiraTicket={issueKeys[0] ?? ""}
             onOwnerChange={setOwner}
             onRepoChange={setRepo}
             onBranchChange={setBranch}
