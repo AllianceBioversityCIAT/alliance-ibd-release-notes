@@ -1,5 +1,15 @@
+export interface JiraChild {
+  key: string;
+  summary: string;
+  type: string;
+  status: string;
+  description: string;
+  children: JiraChild[];
+}
+
 export interface JiraResponse {
   jira_context: string;
+  children?: JiraChild[];
 }
 
 export interface CommitsResponse {

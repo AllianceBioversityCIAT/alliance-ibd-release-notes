@@ -14,7 +14,7 @@ import {
 } from "@xyflow/react";
 import "@xyflow/react/dist/style.css";
 
-import type { LocalMediaItem } from "@/app/lib/types";
+import type { LocalMediaItem, JiraChild } from "@/app/lib/types";
 import { fetchJiraContext, fetchCommits, streamReleaseNote, uploadFilesSequentially } from "@/app/lib/api";
 import { saveNote } from "@/app/lib/history";
 import { flowNodeTypes } from "./flow-nodes";
@@ -26,6 +26,47 @@ const BELOW = { dx: 0, dy: 340 };   // result below input
 const RIGHT = { dx: 780, dy: 0 };   // next input to the right
 const FLOW_GAP_Y = 900;
 const RESULT_W = 750; // result node width (700) + horizontal gap (50)
+
+/* ── Recursively create child/grandchild nodes from Jira subtree ── */
+function buildChildSubtree(
+  prefix: string,
+  parentNodeId: string,
+  children: JiraChild[],
+  parentX: number,
+  parentY: number,
+  counter: { val: number },
+  depth: number,
+  onFullscreen: (md: string) => void,
+): { nodes: Node[]; edges: Edge[] } {
+  const nodes: Node[] = [];
+  const edges: Edge[] = [];
+  const nodeW = depth === 0 ? 500 : Math.max(380, 500 - depth * 40);
+  const hSpacing = nodeW + 20;
+
+  children.forEach((child, j) => {
+    const nodeId = nid(prefix, `jira-sub-${counter.val++}`);
+    const x = parentX + j * hSpacing;
+    const y = parentY + BELOW.dy;
+    const md = `**[${child.key}] ${child.summary}**\n\n_${child.type} · ${child.status}_${child.description ? `\n\n${child.description}` : ""}`;
+
+    nodes.push({
+      id: nodeId, type: "result",
+      position: { x, y },
+      style: { width: nodeW },
+      data: { markdown: md, title: child.key, color: "#0052CC", icon: "jira",
+        onFullscreen: () => onFullscreen(md) },
+    } as Node);
+    edges.push(mkEdge(parentNodeId, "bottom", nodeId, "top"));
+
+    if (child.children?.length) {
+      const sub = buildChildSubtree(prefix, nodeId, child.children, x, y, counter, depth + 1, onFullscreen);
+      nodes.push(...sub.nodes);
+      edges.push(...sub.edges);
+    }
+  });
+
+  return { nodes, edges };
+}
 
 function mkEdge(src: string, srcH: string, tgt: string, tgtH: string): Edge {
   return {
@@ -108,6 +149,9 @@ export function FlowView({ onFullscreenMarkdown, onStreamingChange, onSwitchView
       try {
         const ctxResults = await Promise.allSettled(issueKeys.map((k) => fetchJiraContext([k])));
 
+        // Collect child edges populated inside setNodes callback (React processes updaters in FIFO order)
+        let childEdges: Edge[] = [];
+
         setNodes((nds) => {
           const p = findPos(nds, jIn);
           const resultNodes: Node[] = issueKeys.map((key, i) => {
@@ -122,10 +166,28 @@ export function FlowView({ onFullscreenMarkdown, onStreamingChange, onSwitchView
                 onFullscreen: () => onFullscreenMarkdown(ctx) },
             } as Node;
           });
+
+          // Build child/grandchild nodes for each result
+          childEdges = [];
+          const counter = { val: 0 };
+          const allChildNodes: Node[] = [];
+          issueKeys.forEach((_, i) => {
+            const res = ctxResults[i];
+            if (res.status === "fulfilled" && res.value.children?.length) {
+              const { nodes: subNodes, edges: subEdges } = buildChildSubtree(
+                prefix, nid(prefix, `jira-result-${i}`), res.value.children,
+                p.x + i * RESULT_W, p.y + BELOW.dy, counter, 0, onFullscreenMarkdown,
+              );
+              allChildNodes.push(...subNodes);
+              childEdges.push(...subEdges);
+            }
+          });
+
           const githubX = p.x + Math.max(RIGHT.dx, issueKeys.length * RESULT_W + 30);
           return [
             ...nds.filter((n) => n.id !== jLoad),
             ...resultNodes,
+            ...allChildNodes,
             { id: gIn, type: "githubInput",
               position: { x: githubX, y: p.y + RIGHT.dy },
               data: { jiraTicket: primaryKey, onSubmit: (o: string, r: string, b: string) => handleGitHub(o, r, b), disabled: false } } as Node,
@@ -134,7 +196,7 @@ export function FlowView({ onFullscreenMarkdown, onStreamingChange, onSwitchView
         setEdges((eds) => {
           const base = eds.filter((e) => !e.id.includes(jLoad));
           const resultEdges = issueKeys.map((_, i) => mkEdge(jIn, "bottom", nid(prefix, `jira-result-${i}`), "top"));
-          return [...base, ...resultEdges, mkEdge(jIn, "right", gIn, "left")];
+          return [...base, ...resultEdges, ...childEdges, mkEdge(jIn, "right", gIn, "left")];
         });
       } catch (err) {
         setNodes((nds) => nds.filter((n) => n.id !== jLoad)

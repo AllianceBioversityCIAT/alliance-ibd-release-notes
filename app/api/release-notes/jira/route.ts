@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { buildJiraContextMulti } from "../_lib/jira";
+import { buildJiraContext, buildJiraContextMulti } from "../_lib/jira";
 
 export async function POST(req: NextRequest) {
   try {
@@ -10,6 +10,12 @@ export async function POST(req: NextRequest) {
 
     if (keys.length === 0) {
       return NextResponse.json({ error: "No issue keys provided" }, { status: 400 });
+    }
+
+    // Single key: return children tree for flow view
+    if (keys.length === 1) {
+      const { jira_context, children } = await buildJiraContext(keys[0]);
+      return NextResponse.json({ jira_context, children });
     }
 
     const { jira_context } = await buildJiraContextMulti(keys);

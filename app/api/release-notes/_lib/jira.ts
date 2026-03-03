@@ -128,6 +128,26 @@ interface IssueNode {
   children: IssueNode[];
 }
 
+export interface JiraChild {
+  key: string;
+  summary: string;
+  type: string;
+  status: string;
+  description: string;
+  children: JiraChild[];
+}
+
+function nodeToChild(node: IssueNode): JiraChild {
+  return {
+    key: node.key,
+    summary: node.summary,
+    type: node.type,
+    status: node.status,
+    description: node.description,
+    children: node.children.map(nodeToChild),
+  };
+}
+
 async function collectTree(
   key: string,
   visited: Set<string>,
@@ -253,6 +273,7 @@ function renderNode(node: IssueNode, depth: number): string {
 export async function buildJiraContext(rootKey: string): Promise<{
   jira_context: string;
   reporter: string;
+  children: JiraChild[];
 }> {
   const visited = new Set<string>();
   const root = await collectTree(rootKey, visited, 0);
@@ -273,7 +294,7 @@ export async function buildJiraContext(rootKey: string): Promise<{
     text += `\n\n[Note: context limited to ${MAX_ISSUES} issues to prevent loops]`;
   }
 
-  return { jira_context: text, reporter: root.reporter };
+  return { jira_context: text, reporter: root.reporter, children: root.children.map(nodeToChild) };
 }
 
 /* ─────────────────────────────────────────────
