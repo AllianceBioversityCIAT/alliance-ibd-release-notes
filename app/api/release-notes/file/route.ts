@@ -1,51 +1,45 @@
 import { NextRequest, NextResponse } from "next/server";
-import { N8N_BASE_URL } from "@/app/lib/constants";
+import { S3Client, PutObjectCommand } from "@aws-sdk/client-s3";
+import crypto from "crypto";
+
+const s3 = new S3Client({
+  region: process.env.AWS_REGION ?? "us-east-1",
+  credentials: {
+    accessKeyId: process.env.AWS_ACCESS_KEY_ID!,
+    secretAccessKey: process.env.AWS_SECRET_ACCESS_KEY!,
+  },
+});
 
 export async function POST(req: NextRequest) {
   try {
     const formData = await req.formData();
     const file = formData.get("file");
+
     if (!file || !(file instanceof Blob)) {
       return NextResponse.json({ error: "No file provided" }, { status: 400 });
     }
 
-    // Rebuild FormData to forward to n8n — preserve original filename
-    const n8nForm = new FormData();
-    n8nForm.append("file", file, (file as File).name || "upload");
+    const originalName = (file as File).name || "upload";
+    const date = new Date().toISOString().split("T")[0].replace(/-/g, "");
+    const uuid = crypto.randomUUID().substring(0, 8);
+    const fileName = `${date}_${uuid}_${originalName}`;
 
-    const res = await fetch(`${N8N_BASE_URL}/release-note/file`, {
-      method: "POST",
-      body: n8nForm,
-    });
+    const bucket = process.env.AWS_S3_BUCKET ?? "release-note-files";
+    const region = process.env.AWS_REGION ?? "us-east-1";
 
-    if (!res.ok) {
-      const text = await res.text();
-      return NextResponse.json(
-        { error: text || `n8n responded with ${res.status}` },
-        { status: res.status }
-      );
-    }
+    const buffer = Buffer.from(await file.arrayBuffer());
 
-    const text = await res.text();
+    await s3.send(
+      new PutObjectCommand({
+        Bucket: bucket,
+        Key: fileName,
+        Body: buffer,
+        ContentType: file.type || "application/octet-stream",
+      })
+    );
 
-    // n8n respondToWebhook may return empty body, JSON, or plain text
-    if (!text || text.trim().length === 0) {
-      // n8n returned empty — the upload succeeded but respondToWebhook
-      // isn't configured to return S3 data. Return success with no URL.
-      return NextResponse.json({
-        success: true,
-        Location: "",
-        message: "File uploaded but n8n did not return the S3 URL. Configure respondToWebhook to return the S3 upload result.",
-      });
-    }
-
-    try {
-      const data = JSON.parse(text);
-      return NextResponse.json(data);
-    } catch {
-      // If not JSON, treat as plain text URL
-      return NextResponse.json({ Location: text.trim() });
-    }
+    const Location = `https://${bucket}.s3.${region}.amazonaws.com/${fileName}`;
+    return NextResponse.json({ Location });
   } catch (e) {
     return NextResponse.json(
       { error: e instanceof Error ? e.message : "Unknown error" },

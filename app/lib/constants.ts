@@ -11,5 +11,3 @@ export const STEPS = [
   { number: 2, title: "GitHub Commits", description: "Gather commit history" },
   { number: 3, title: "Generate", description: "AI-powered release note" },
 ] as const;
-
-export const N8N_BASE_URL = "https://ibdteam.app.n8n.cloud/webhook";
