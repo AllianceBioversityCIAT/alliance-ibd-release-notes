@@ -86,7 +86,7 @@ export async function POST(req: NextRequest) {
   if (!dbId) return NextResponse.json({ error: "NOTION_DATABASE_ID not set" }, { status: 500 });
 
   try {
-    const { title, brief_description, tag, projects, released_date, markdown } =
+    const { title, brief_description, tag, projects, released_date, markdown, cover_url } =
       (await req.json()) as {
         title: string;
         brief_description?: string;
@@ -94,12 +94,14 @@ export async function POST(req: NextRequest) {
         projects?: string[];
         released_date?: string;
         markdown: string;
+        cover_url?: string;
       };
 
     const blocks = markdownToBlocks(markdown);
 
-    const pageBody = {
+    const pageBody: Record<string, unknown> = {
       parent: { database_id: dbId },
+      ...(cover_url ? { cover: { type: "external", external: { url: cover_url } } } : {}),
       properties: {
         Name: { title: [{ text: { content: title.slice(0, 2000) } }] },
         ...(brief_description

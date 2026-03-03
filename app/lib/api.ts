@@ -99,6 +99,7 @@ export function publishToNotion(params: {
   projects: string[];
   released_date: string;
   markdown: string;
+  cover_url?: string;
 }) {
   return post<NotionPublishResult>("/api/release-notes/notion", params);
 }

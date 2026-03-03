@@ -14,7 +14,7 @@ import {
 } from "@xyflow/react";
 import "@xyflow/react/dist/style.css";
 
-import type { LocalMediaItem, JiraChild } from "@/app/lib/types";
+import type { LocalMediaItem, JiraChild, NotionPublishPayload } from "@/app/lib/types";
 import { fetchJiraContext, fetchCommits, streamReleaseNote, uploadFilesSequentially, publishToNotion } from "@/app/lib/api";
 import { saveNote } from "@/app/lib/history";
 import { flowNodeTypes } from "./flow-nodes";
@@ -317,20 +317,33 @@ export function FlowView({ onFullscreenMarkdown, onStreamingChange, onSwitchView
         saveNote({ jiraKey: s.jiraKey, title: firstHeading, markdown: accumulated });
         onStreamingChange?.(false);
         const finalMd = accumulated;
-        setNodes((nds) => nds.map((n) => n.id === genRes ? {
-          ...n, data: {
-            ...n.data, streaming: false,
-            onPublishNotion: (payload: { tag: string; projects: string[]; brief_description: string }) =>
-              publishToNotion({
-                title: firstHeading,
-                brief_description: payload.brief_description,
-                tag: payload.tag,
-                projects: payload.projects,
-                released_date: new Date().toISOString().split("T")[0],
-                markdown: finalMd,
-              }),
-          },
-        } : n));
+        const notionIn = nid(prefix, "notion-input");
+        setNodes((nds) => {
+          const genResNode = nds.find((n) => n.id === genRes);
+          const gp = genResNode?.position ?? { x: 0, y: 0 };
+          return [
+            ...nds.map((n) => n.id === genRes ? { ...n, data: { ...n.data, streaming: false } } : n),
+            {
+              id: notionIn, type: "notionInput",
+              position: { x: gp.x + 780, y: gp.y },
+              data: {
+                _title: firstHeading,
+                _markdown: finalMd,
+                onPublish: (payload: NotionPublishPayload) =>
+                  publishToNotion({
+                    title: firstHeading,
+                    brief_description: payload.brief_description,
+                    tag: payload.tag,
+                    projects: payload.projects,
+                    released_date: new Date().toISOString().split("T")[0],
+                    markdown: finalMd,
+                    cover_url: payload.cover_url,
+                  }),
+              },
+            } as Node,
+          ];
+        });
+        setEdges((eds) => [...eds, mkEdge(genRes, "right", notionIn, "left")]);
       } catch (err) {
         onStreamingChange?.(false);
         setNodes((nds) => nds.filter((n) => n.id !== genLoad && n.id !== genRes)
@@ -406,6 +419,12 @@ export function FlowView({ onFullscreenMarkdown, onStreamingChange, onSwitchView
     else if (n.type === "githubInput") data.onSubmit = (o: string, r: string, b: string) => handleGitHub(o, r, b);
     else if (n.type === "generateInput") data.onSubmit = (m: LocalMediaItem[]) => handleGenerate(m);
     else if (n.type === "result" && typeof data.markdown === "string") data.onFullscreen = () => onFullscreenMarkdown(data.markdown as string);
+    else if (n.type === "notionInput" && typeof data._markdown === "string") {
+      const title = (data._title as string) || "";
+      const markdown = data._markdown as string;
+      data.onPublish = (payload: NotionPublishPayload) =>
+        publishToNotion({ title, brief_description: payload.brief_description, tag: payload.tag, projects: payload.projects, released_date: new Date().toISOString().split("T")[0], markdown, cover_url: payload.cover_url });
+    }
 
     return { id: n.id, type: n.type, position: n.position, style: n.style, data } as Node;
   }
@@ -488,7 +507,7 @@ export function FlowView({ onFullscreenMarkdown, onStreamingChange, onSwitchView
   return (
     <div className="relative w-full h-full">
       {/* Toolbar */}
-      <div className="absolute top-3 left-3 z-10 flex items-center gap-2">
+      <div className="absolute top-3 left-3 z-50 flex items-center gap-2">
         <button onClick={() => onSwitchView("panoramic")}
           className="rounded-lg bg-[#2a2a3e] border border-white/10 px-3 py-1.5 text-xs font-medium text-white/70 hover:bg-[#353550] hover:text-white shadow-lg transition-colors flex items-center gap-1.5">
           <FocusIcon className="w-3 h-3" /> Focus

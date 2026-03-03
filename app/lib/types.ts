@@ -46,6 +46,7 @@ export interface NotionPublishPayload {
   tag: string;
   projects: string[];
   brief_description: string;
+  cover_url?: string;
 }
 
 export interface NotionPublishResult {

@@ -9,7 +9,7 @@ import { MarkdownRenderer } from "./markdown-renderer";
 import { CopyButton } from "./copy-button";
 import { JiraIcon, GitHubIcon, AIIcon, NotionIcon } from "./brand-icons";
 import { MediaUploadZone } from "./media-upload-zone";
-import { getNotionOptions } from "@/app/lib/api";
+import { getNotionOptions, uploadFile } from "@/app/lib/api";
 
 /* ── Shared Handle Styles ── */
 const hRight = { width: 10, height: 10, background: "#22c55e", border: "2px solid #1a1a2e" };
@@ -252,118 +252,6 @@ export const GenerateInputNode = memo(function GenerateInputNode({ data }: NodeP
 });
 
 /* ═══════════════════════════════════════════════════
-   Notion Publish Panel (used inside ResultNode for AI results)
-   ═══════════════════════════════════════════════════ */
-function NotionPublishPanel({ onPublish }: {
-  onPublish: (payload: NotionPublishPayload) => Promise<NotionPublishResult>;
-}) {
-  const [open, setOpen] = useState(false);
-  const [publishedUrl, setPublishedUrl] = useState<string | null>(null);
-  const [publishing, setPublishing] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-
-  const [tags, setTags] = useState<string[]>([]);
-  const [allProjects, setAllProjects] = useState<string[]>([]);
-  const [tag, setTag] = useState("");
-  const [projects, setProjects] = useState<string[]>([]);
-  const [brief, setBrief] = useState("");
-
-  useEffect(() => {
-    if (!open || tags.length > 0) return;
-    getNotionOptions().then(({ tags: t, projects: p }) => {
-      setTags(t);
-      setAllProjects(p);
-    }).catch(() => {});
-  }, [open, tags.length]);
-
-  async function handleSubmit() {
-    setPublishing(true);
-    setError(null);
-    try {
-      const res = await onPublish({ tag, projects, brief_description: brief });
-      setPublishedUrl(res.url);
-      setOpen(false);
-    } catch (e) {
-      setError(e instanceof Error ? e.message : "Error publishing");
-    } finally {
-      setPublishing(false);
-    }
-  }
-
-  if (publishedUrl) {
-    return (
-      <div className="border-t border-white/10 px-4 py-2.5 flex items-center gap-2 bg-emerald-500/10">
-        <CheckIcon className="w-3.5 h-3.5 text-emerald-400 flex-shrink-0" />
-        <a href={publishedUrl} target="_blank" rel="noopener noreferrer"
-          className="text-[11px] font-medium text-emerald-400 hover:underline truncate">
-          Published in Notion ↗
-        </a>
-      </div>
-    );
-  }
-
-  return (
-    <div className="border-t border-white/10 bg-[#13131f]">
-      {!open ? (
-        <button onClick={() => setOpen(true)}
-          className="w-full flex items-center justify-center gap-1.5 px-4 py-2 text-[11px] font-medium text-white/50 hover:text-white/80 hover:bg-white/5 transition-colors">
-          <NotionIcon className="w-3.5 h-3.5" /> Publish to Notion
-        </button>
-      ) : (
-        <div className="p-3 space-y-2.5" onMouseDown={(e) => e.stopPropagation()}>
-          {/* Tag */}
-          <div>
-            <label className="block text-[10px] font-medium text-white/40 mb-1">Tag</label>
-            <select value={tag} onChange={(e) => setTag(e.target.value)}
-              className="w-full rounded-md border border-white/10 bg-white/5 px-2 py-1.5 text-xs text-white outline-none focus:ring-1 focus:ring-purple-500/40">
-              <option value="">— none —</option>
-              {tags.map((t) => <option key={t} value={t}>{t}</option>)}
-            </select>
-          </div>
-
-          {/* Projects */}
-          <div>
-            <label className="block text-[10px] font-medium text-white/40 mb-1">Projects</label>
-            <div className="max-h-28 overflow-y-auto rounded-md border border-white/10 bg-white/5 p-2 grid grid-cols-2 gap-x-3 gap-y-1">
-              {allProjects.map((p) => (
-                <label key={p} className="flex items-center gap-1.5 cursor-pointer">
-                  <input type="checkbox" checked={projects.includes(p)}
-                    onChange={(e) => setProjects(e.target.checked ? [...projects, p] : projects.filter((x) => x !== p))}
-                    className="accent-purple-500 w-3 h-3" />
-                  <span className="text-[10px] text-white/70 truncate">{p}</span>
-                </label>
-              ))}
-            </div>
-          </div>
-
-          {/* Brief description */}
-          <div>
-            <label className="block text-[10px] font-medium text-white/40 mb-1">Brief description (optional)</label>
-            <textarea value={brief} onChange={(e) => setBrief(e.target.value)} rows={2}
-              placeholder="Short summary shown in the gallery..."
-              className="w-full rounded-md border border-white/10 bg-white/5 px-2 py-1.5 text-xs text-white placeholder:text-white/25 outline-none focus:ring-1 focus:ring-purple-500/40 resize-none" />
-          </div>
-
-          {error && <p className="text-[10px] text-red-400">{error}</p>}
-
-          <div className="flex gap-2">
-            <button onClick={() => setOpen(false)}
-              className="flex-1 rounded-md border border-white/10 px-3 py-1.5 text-[11px] text-white/50 hover:text-white/80 transition-colors">
-              Cancel
-            </button>
-            <button onClick={handleSubmit} disabled={publishing}
-              className="flex-1 rounded-md bg-black px-3 py-1.5 text-[11px] font-semibold text-white hover:bg-white/10 disabled:opacity-40 flex items-center justify-center gap-1 transition-colors">
-              {publishing ? <LoaderIcon className="w-3 h-3" /> : <NotionIcon className="w-3 h-3" />}
-              {publishing ? "Publishing..." : "Publish"}
-            </button>
-          </div>
-        </div>
-      )}
-    </div>
-  );
-}
-
-/* ═══════════════════════════════════════════════════
    4. Loading Node (appears below input while fetching)
    Handles: target-top (↑ from input)
    ═══════════════════════════════════════════════════ */
@@ -385,14 +273,13 @@ export const LoadingNode = memo(function LoadingNode({ data }: NodeProps) {
    Handles: target-top (↑ from input), source-right (→ to next step)
    ═══════════════════════════════════════════════════ */
 export const ResultNode = memo(function ResultNode({ data }: NodeProps) {
-  const { markdown, title, color, icon, onFullscreen, streaming, onPublishNotion } = data as {
+  const { markdown, title, color, icon, onFullscreen, streaming } = data as {
     markdown: string;
     title: string;
     color: string;
     icon: "jira" | "github" | "ai";
     onFullscreen?: () => void;
     streaming?: boolean;
-    onPublishNotion?: (payload: NotionPublishPayload) => Promise<NotionPublishResult>;
   };
 
   const IconComponent = icon === "jira" ? JiraIcon : icon === "github" ? GitHubIcon : AIIcon;
@@ -422,11 +309,164 @@ export const ResultNode = memo(function ResultNode({ data }: NodeProps) {
           <span aria-hidden="true" className="inline-block h-4 w-0.5 bg-purple-600 align-middle ml-0.5 animate-blink" />
         )}
       </div>
-      {icon === "ai" && !streaming && onPublishNotion && (
-        <NotionPublishPanel onPublish={onPublishNotion} />
-      )}
       <Handle type="source" position={Position.Right} id="right" style={hRight} />
       <Handle type="source" position={Position.Bottom} id="bottom" style={hBottom} />
+    </div>
+  );
+});
+
+/* ═══════════════════════════════════════════════════
+   6. Notion Input Node — publish generated release note
+   Handles: target-left (← from generate result)
+   ═══════════════════════════════════════════════════ */
+export const NotionInputNode = memo(function NotionInputNode({ data }: NodeProps) {
+  const { onPublish } = data as {
+    onPublish: (payload: NotionPublishPayload) => Promise<NotionPublishResult>;
+  };
+  const [publishedUrl, setPublishedUrl] = useState<string | null>(null);
+  const [publishing, setPublishing] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [tags, setTags] = useState<string[]>([]);
+  const [allProjects, setAllProjects] = useState<string[]>([]);
+  const [tag, setTag] = useState("");
+  const [projects, setProjects] = useState<string[]>([]);
+  const [brief, setBrief] = useState("");
+  const [bannerPreview, setBannerPreview] = useState<string | null>(null);
+  const [bannerUploading, setBannerUploading] = useState(false);
+  const [bannerUrl, setBannerUrl] = useState<string | null>(null);
+
+  useEffect(() => {
+    getNotionOptions()
+      .then(({ tags: t, projects: p }) => { setTags(t); setAllProjects(p); })
+      .catch(() => {});
+  }, []);
+
+  async function handleBannerChange(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    setBannerPreview(URL.createObjectURL(file));
+    setBannerUrl(null);
+    setBannerUploading(true);
+    try {
+      const url = await uploadFile(file);
+      setBannerUrl(url);
+    } catch {
+      setBannerPreview(null);
+    } finally {
+      setBannerUploading(false);
+    }
+  }
+
+  function removeBanner() {
+    if (bannerPreview) URL.revokeObjectURL(bannerPreview);
+    setBannerPreview(null);
+    setBannerUrl(null);
+  }
+
+  async function handlePublish() {
+    setPublishing(true);
+    setError(null);
+    try {
+      const res = await onPublish({ tag, projects, brief_description: brief, cover_url: bannerUrl ?? undefined });
+      setPublishedUrl(res.url);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Error publishing");
+    } finally {
+      setPublishing(false);
+    }
+  }
+
+  return (
+    <div className="rounded-2xl border-2 shadow-xl w-[300px] transition-all border-gray-600/40 bg-[#1e1e38]">
+      <Handle type="target" position={Position.Left} id="left" style={hLeft} />
+      <div className="flex items-center gap-2 px-4 py-3 rounded-t-2xl" style={{ background: "linear-gradient(135deg, rgba(0,0,0,0.25), transparent)" }}>
+        <div className="flex h-7 w-7 items-center justify-center rounded-lg bg-black text-white shadow-md">
+          <NotionIcon className="w-4 h-4" />
+        </div>
+        <span className="text-sm font-semibold text-white">Publish to Notion</span>
+        {publishedUrl && <span className="ml-auto text-[10px] font-medium text-emerald-400 bg-emerald-500/20 rounded-full px-2 py-0.5">Published</span>}
+      </div>
+      <div className="nowheel p-4 space-y-3 border-t border-white/5">
+        {publishedUrl ? (
+          <a href={publishedUrl} target="_blank" rel="noopener noreferrer"
+            className="flex items-center gap-2 text-sm font-medium text-emerald-400 hover:underline">
+            <CheckIcon className="w-4 h-4" /> View in Notion ↗
+          </a>
+        ) : (
+          <>
+            {/* Tag */}
+            <div>
+              <label className="text-[10px] font-medium text-white/40 mb-0.5 block">Tag</label>
+              <select value={tag} onChange={(e) => setTag(e.target.value)}
+                className="w-full rounded-md border border-white/10 bg-white/5 px-2 py-1.5 text-xs text-white outline-none focus:ring-1 focus:ring-gray-400/50">
+                <option value="">— none —</option>
+                {tags.map((t) => <option key={t} value={t}>{t}</option>)}
+              </select>
+            </div>
+
+            {/* Projects — always-visible scrollbar, wheel captured */}
+            <div>
+              <label className="text-[10px] font-medium text-white/40 mb-0.5 block">Projects</label>
+              <div
+                className="nowheel rounded-md border border-white/10 bg-white/5 p-2 grid grid-cols-2 gap-x-3 gap-y-1"
+                style={{ maxHeight: 112, overflowY: "scroll" }}
+              >
+                {allProjects.map((p) => (
+                  <label key={p} className="flex items-center gap-1.5 cursor-pointer">
+                    <input type="checkbox" checked={projects.includes(p)}
+                      onChange={(e) => setProjects(e.target.checked ? [...projects, p] : projects.filter((x) => x !== p))}
+                      className="accent-purple-500 w-3 h-3 flex-shrink-0" />
+                    <span className="text-[10px] text-white/70 truncate">{p}</span>
+                  </label>
+                ))}
+              </div>
+            </div>
+
+            {/* Banner / Cover */}
+            <div>
+              <label className="text-[10px] font-medium text-white/40 mb-0.5 block">Banner / Cover (optional)</label>
+              {bannerPreview ? (
+                <div className="relative rounded-md overflow-hidden border border-white/10 h-20">
+                  {/* eslint-disable-next-line @next/next/no-img-element */}
+                  <img src={bannerPreview} alt="banner" className="w-full h-full object-cover" />
+                  {bannerUploading && (
+                    <div className="absolute inset-0 flex items-center justify-center bg-black/50">
+                      <LoaderIcon className="w-4 h-4 text-white" />
+                    </div>
+                  )}
+                  {!bannerUploading && (
+                    <button onClick={removeBanner}
+                      className="absolute top-1 right-1 rounded-full bg-black/60 p-0.5 text-white/70 hover:text-white transition-colors">
+                      <XIcon className="w-3 h-3" />
+                    </button>
+                  )}
+                </div>
+              ) : (
+                <label className="flex items-center justify-center gap-1.5 rounded-md border border-dashed border-white/20 bg-white/5 px-3 py-3 text-[10px] text-white/40 hover:text-white/60 hover:border-white/30 transition-colors cursor-pointer">
+                  <ImageIcon className="w-3.5 h-3.5" /> Upload image
+                  <input type="file" accept="image/*" className="sr-only" onChange={handleBannerChange} />
+                </label>
+              )}
+            </div>
+
+            {/* Brief */}
+            <div>
+              <label className="text-[10px] font-medium text-white/40 mb-0.5 block">Brief description (optional)</label>
+              <textarea value={brief} onChange={(e) => setBrief(e.target.value)} rows={2}
+                placeholder="Short summary shown in the gallery..."
+                className="w-full rounded-md border border-white/10 bg-white/5 px-2 py-1.5 text-xs text-white placeholder:text-white/25 outline-none focus:ring-1 focus:ring-gray-400/50 resize-none" />
+            </div>
+
+            {error && <p className="text-[10px] text-red-400">{error}</p>}
+
+            <button onClick={handlePublish} disabled={publishing || bannerUploading}
+              className="w-full rounded-lg bg-black px-4 py-2 text-sm font-semibold text-white hover:bg-white/10 disabled:opacity-40 flex items-center justify-center gap-2 transition-colors">
+              {publishing ? <LoaderIcon className="w-4 h-4" /> : <NotionIcon className="w-4 h-4" />}
+              {publishing ? "Publishing..." : bannerUploading ? "Uploading banner..." : "Publish to Notion"}
+            </button>
+          </>
+        )}
+      </div>
     </div>
   );
 });
@@ -438,4 +478,5 @@ export const flowNodeTypes = {
   generateInput: GenerateInputNode,
   loading: LoadingNode,
   result: ResultNode,
+  notionInput: NotionInputNode,
 };
