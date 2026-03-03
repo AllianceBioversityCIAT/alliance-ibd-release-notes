@@ -139,7 +139,7 @@ export function FlowView({ onFullscreenMarkdown, onStreamingChange, onSwitchView
       setNodes((nds) => {
         const p = findPos(nds, jIn);
         return [
-          ...nds.map((n) => n.id === jIn ? { ...n, data: { ...n.data, disabled: true } } : n),
+          ...nds.map((n) => n.id === jIn ? { ...n, data: { ...n.data, disabled: true, onReset: handleJiraReset } } : n),
           { id: jLoad, type: "loading", position: { x: p.x + BELOW.dx, y: p.y + BELOW.dy },
             data: { label, color: "#0052CC" } } as Node,
         ];
@@ -200,10 +200,26 @@ export function FlowView({ onFullscreenMarkdown, onStreamingChange, onSwitchView
         });
       } catch (err) {
         setNodes((nds) => nds.filter((n) => n.id !== jLoad)
-          .map((n) => n.id === jIn ? { ...n, data: { ...n.data, disabled: false, onSubmit: handleJira } } : n));
+          .map((n) => n.id === jIn ? { ...n, data: { ...n.data, disabled: false, onSubmit: handleJira, onReset: handleJiraReset } } : n));
         setEdges((eds) => eds.filter((e) => !e.id.includes(jLoad)));
         alert(`Jira error: ${err instanceof Error ? err.message : "Unknown error"}`);
       }
+    };
+
+    /* Re-enable jira-input and wipe all downstream nodes/edges for this flow */
+    const handleJiraReset = () => {
+      const jIn = nid(prefix, "jira-input");
+      flowStatesRef.current[prefix] = { jiraKey: "", jiraKeys: [], owner: "", repo: "", branch: "" };
+      setNodes((nds) => nds
+        .filter((n) => !n.id.startsWith(prefix + "-") || n.id === jIn)
+        .map((n) => n.id === jIn
+          ? { ...n, data: { ...n.data, disabled: false, onSubmit: handleJira, onReset: handleJiraReset } }
+          : n
+        )
+      );
+      setEdges((eds) => eds.filter(
+        (e) => !e.source.startsWith(prefix + "-") && !e.target.startsWith(prefix + "-")
+      ));
     };
 
     const handleGitHub = async (owner: string, repo: string, branch: string) => {
@@ -310,7 +326,7 @@ export function FlowView({ onFullscreenMarkdown, onStreamingChange, onSwitchView
       }
     };
 
-    return { handleJira, handleGitHub, handleGenerate };
+    return { handleJira, handleJiraReset, handleGitHub, handleGenerate };
   }
 
   /* ── Save canvas on every change ── */
@@ -334,10 +350,10 @@ export function FlowView({ onFullscreenMarkdown, onStreamingChange, onSwitchView
   /* ── Rehydrate node: re-attach callbacks ── */
   function rehydrateNode(n: PersistedCanvas["nodes"][number]): Node {
     const prefix = n.id.split("-")[0];
-    const { handleJira, handleGitHub, handleGenerate } = makeHandlers(prefix);
+    const { handleJira, handleJiraReset, handleGitHub, handleGenerate } = makeHandlers(prefix);
     const data = { ...n.data };
 
-    if (n.type === "jiraInput") data.onSubmit = handleJira;
+    if (n.type === "jiraInput") { data.onSubmit = handleJira; data.onReset = handleJiraReset; }
     else if (n.type === "githubInput") data.onSubmit = (o: string, r: string, b: string) => handleGitHub(o, r, b);
     else if (n.type === "generateInput") data.onSubmit = (m: LocalMediaItem[]) => handleGenerate(m);
     else if (n.type === "result" && typeof data.markdown === "string") data.onFullscreen = () => onFullscreenMarkdown(data.markdown as string);
@@ -368,11 +384,11 @@ export function FlowView({ onFullscreenMarkdown, onStreamingChange, onSwitchView
     flowCountRef.current += 1;
     const prefix = `f${idx}`;
     flowStatesRef.current[prefix] = { jiraKey: "", jiraKeys: [], owner: "", repo: "", branch: "" };
-    const { handleJira } = makeHandlers(prefix);
+    const { handleJira, handleJiraReset } = makeHandlers(prefix);
 
     setNodes((nds) => [
       ...nds,
-      { id: nid(prefix, "jira-input"), type: "jiraInput", position: { x: 0, y: yOffset }, data: { onSubmit: handleJira, disabled: false } },
+      { id: nid(prefix, "jira-input"), type: "jiraInput", position: { x: 0, y: yOffset }, data: { onSubmit: handleJira, onReset: handleJiraReset, disabled: false } },
     ]);
   }
 
@@ -390,11 +406,11 @@ export function FlowView({ onFullscreenMarkdown, onStreamingChange, onSwitchView
       flowCountRef.current += 1;
       const prefix = `f${idx}`;
       flowStatesRef.current[prefix] = { jiraKey: "", jiraKeys: [], owner: "", repo: "", branch: "" };
-      const { handleJira } = makeHandlers(prefix);
+      const { handleJira, handleJiraReset } = makeHandlers(prefix);
 
       return [
         ...nds,
-        { id: nid(prefix, "jira-input"), type: "jiraInput", position: { x: 0, y: yOffset }, data: { onSubmit: handleJira, disabled: false } },
+        { id: nid(prefix, "jira-input"), type: "jiraInput", position: { x: 0, y: yOffset }, data: { onSubmit: handleJira, onReset: handleJiraReset, disabled: false } },
       ];
     });
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -411,10 +427,10 @@ export function FlowView({ onFullscreenMarkdown, onStreamingChange, onSwitchView
     const prefix = "f0";
     flowCountRef.current = 1;
     flowStatesRef.current[prefix] = { jiraKey: "", jiraKeys: [], owner: "", repo: "", branch: "" };
-    const { handleJira } = makeHandlers(prefix);
+    const { handleJira, handleJiraReset } = makeHandlers(prefix);
 
     setNodes([
-      { id: nid(prefix, "jira-input"), type: "jiraInput", position: { x: 0, y: 0 }, data: { onSubmit: handleJira, disabled: false } },
+      { id: nid(prefix, "jira-input"), type: "jiraInput", position: { x: 0, y: 0 }, data: { onSubmit: handleJira, onReset: handleJiraReset, disabled: false } },
     ]);
     setEdges([]);
     // eslint-disable-next-line react-hooks/exhaustive-deps

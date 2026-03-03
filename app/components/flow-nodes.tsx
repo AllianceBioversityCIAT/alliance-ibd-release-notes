@@ -4,7 +4,7 @@ import { memo, useState } from "react";
 import { Handle, Position, type NodeProps } from "@xyflow/react";
 import { DEFAULTS } from "@/app/lib/constants";
 import type { LocalMediaItem } from "@/app/lib/types";
-import { LoaderIcon, TrashIcon, ImageIcon, ExpandIcon, XIcon, PlusIcon } from "./icons";
+import { LoaderIcon, TrashIcon, ImageIcon, ExpandIcon, XIcon, PlusIcon, RefreshIcon } from "./icons";
 import { MarkdownRenderer } from "./markdown-renderer";
 import { CopyButton } from "./copy-button";
 import { JiraIcon, GitHubIcon, AIIcon } from "./brand-icons";
@@ -21,9 +21,10 @@ const hLeft = { ...hRight };
    Handles: source-right (→ GitHub), source-bottom (↓ result)
    ═══════════════════════════════════════════════════ */
 export const JiraInputNode = memo(function JiraInputNode({ data }: NodeProps) {
-  const { onSubmit, disabled } = data as {
+  const { onSubmit, disabled, onReset } = data as {
     onSubmit: (issueKeys: string[]) => void;
     disabled: boolean;
+    onReset?: () => void;
   };
   const [keys, setKeys] = useState([""]);
 
@@ -42,7 +43,20 @@ export const JiraInputNode = memo(function JiraInputNode({ data }: NodeProps) {
           <JiraIcon className="w-4 h-4" />
         </div>
         <span className="text-sm font-semibold text-white">Jira Context</span>
-        {disabled && <span className="ml-auto text-[10px] font-medium text-emerald-400 bg-emerald-500/20 rounded-full px-2 py-0.5">Done</span>}
+        {disabled && (
+          <>
+            <span className="ml-auto text-[10px] font-medium text-emerald-400 bg-emerald-500/20 rounded-full px-2 py-0.5">Done</span>
+            {onReset && (
+              <button
+                onClick={onReset}
+                title="Edit & re-fetch"
+                className="flex items-center gap-1 rounded-md bg-white/10 px-2 py-1 text-[10px] font-medium text-white/60 hover:bg-blue-500/20 hover:text-blue-400 transition-colors"
+              >
+                <RefreshIcon className="w-3 h-3" /> Re-fetch
+              </button>
+            )}
+          </>
+        )}
       </div>
       <div className="p-4 space-y-2 border-t border-white/5">
         {keys.map((k, i) => (
