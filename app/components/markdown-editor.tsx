@@ -97,18 +97,22 @@ export function MarkdownEditorView({ value, onChange, onSave, onCancel }: Markdo
     },
   });
 
-  // Upload image to S3 and insert into editor
+  // Upload image to S3 and insert at cursor position
   const uploadAndInsert = useCallback(async (file: File, pos?: number) => {
     if (!editor) return;
     setUploading(true);
     try {
       const url = await uploadFile(file);
       const name = file.name.replace(/\.[^.]+$/, "");
-      if (pos !== undefined) {
-        editor.chain().focus().setImage({ src: url, alt: name }).run();
-      } else {
-        editor.chain().focus().setImage({ src: url, alt: name }).run();
-      }
+      const insertPos = pos ?? editor.state.selection.anchor;
+      editor
+        .chain()
+        .focus()
+        .insertContentAt(insertPos, {
+          type: "image",
+          attrs: { src: url, alt: name },
+        })
+        .run();
     } catch (err) {
       console.error("Image upload failed:", err);
       alert("Image upload failed. Please try again.");
