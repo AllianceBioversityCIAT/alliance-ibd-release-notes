@@ -7,7 +7,7 @@ import Image from "@tiptap/extension-image";
 import Link from "@tiptap/extension-link";
 import Underline from "@tiptap/extension-underline";
 import Placeholder from "@tiptap/extension-placeholder";
-import { useEffect, useCallback, useState } from "react";
+import { useEffect, useCallback, useState, useRef } from "react";
 import { marked } from "marked";
 import TurndownService from "turndown";
 import { uploadFile } from "@/app/lib/api";
@@ -46,6 +46,7 @@ function htmlToMd(html: string): string {
 }
 
 export function MarkdownEditorView({ value, onChange, onSave, onCancel }: MarkdownEditorProps) {
+  const fileInputRef = useRef<HTMLInputElement>(null);
   const [uploading, setUploading] = useState(false);
 
   const editor = useEditor({
@@ -229,19 +230,31 @@ export function MarkdownEditorView({ value, onChange, onSave, onCancel }: Markdo
           >
             —
           </ToolbarBtn>
-          <label
+          <button
+            type="button"
             title="Insert image"
             className="rounded px-2 py-1 text-xs font-medium transition-colors text-gray-500 hover:bg-gray-100 hover:text-gray-700 cursor-pointer inline-flex items-center"
+            onClick={() => {
+              console.log("[editor] image button clicked, ref:", fileInputRef.current);
+              setTimeout(() => {
+                fileInputRef.current?.click();
+                console.log("[editor] triggered input click");
+              }, 50);
+            }}
           >
             {uploading ? <SpinnerIcon /> : <ImageIcon />}
-            <input
-              type="file"
-              accept="image/*"
-              multiple
-              className="absolute w-0 h-0 overflow-hidden opacity-0"
-              onChange={handleFileSelect}
-            />
-          </label>
+          </button>
+          <input
+            ref={fileInputRef}
+            type="file"
+            accept="image/*"
+            multiple
+            style={{ position: "fixed", top: -9999, left: -9999 }}
+            onChange={(e) => {
+              console.log("[editor] file input onChange, files:", e.target.files?.length);
+              handleFileSelect(e);
+            }}
+          />
         </div>
         <div className="flex items-center gap-2">
           {uploading && (
