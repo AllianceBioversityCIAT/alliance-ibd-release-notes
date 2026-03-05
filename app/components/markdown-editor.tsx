@@ -7,7 +7,7 @@ import Image from "@tiptap/extension-image";
 import Link from "@tiptap/extension-link";
 import Underline from "@tiptap/extension-underline";
 import Placeholder from "@tiptap/extension-placeholder";
-import { useEffect, useCallback, useState } from "react";
+import { useEffect, useCallback, useState, useRef } from "react";
 import { marked } from "marked";
 import TurndownService from "turndown";
 import { uploadFile } from "@/app/lib/api";
@@ -46,7 +46,20 @@ function htmlToMd(html: string): string {
 }
 
 export function MarkdownEditorView({ value, onChange, onSave, onCancel }: MarkdownEditorProps) {
+  const fileInputRef = useRef<HTMLInputElement | null>(null);
   const [uploading, setUploading] = useState(false);
+
+  // Create a single file input in document.body on mount (outside any overlay)
+  useEffect(() => {
+    const input = document.createElement("input");
+    input.type = "file";
+    input.accept = "image/*";
+    input.multiple = true;
+    input.style.display = "none";
+    document.body.appendChild(input);
+    fileInputRef.current = input;
+    return () => { input.remove(); };
+  }, []);
 
   const editor = useEditor({
     immediatelyRender: false,
@@ -216,25 +229,25 @@ export function MarkdownEditorView({ value, onChange, onSave, onCancel }: Markdo
           >
             —
           </ToolbarBtn>
-          <div className="relative rounded px-2 py-1 text-gray-500 hover:bg-gray-100 hover:text-gray-700 inline-flex items-center" title="Insert image">
-            {uploading ? <SpinnerIcon /> : <ImageIcon />}
-            <input
-              type="file"
-              accept="image/*"
-              multiple
-              className="absolute inset-0 w-full h-full opacity-0 cursor-pointer"
-              onChange={(e) => {
-                console.log("[editor] native file input change, files:", e.target.files?.length);
-                const files = e.target.files;
-                if (files) {
-                  Array.from(files).forEach((f) => {
+          <ToolbarBtn
+            active={false}
+            onClick={() => {
+              const input = fileInputRef.current;
+              if (!input) return;
+              input.onchange = () => {
+                if (input.files) {
+                  Array.from(input.files).forEach((f) => {
                     if (f.type.startsWith("image/")) uploadAndInsert(f);
                   });
                 }
-                e.target.value = "";
-              }}
-            />
-          </div>
+                input.value = "";
+              };
+              input.click();
+            }}
+            title="Insert image"
+          >
+            {uploading ? <SpinnerIcon /> : <ImageIcon />}
+          </ToolbarBtn>
         </div>
         <div className="flex items-center gap-2">
           {uploading && (
