@@ -7,7 +7,7 @@ import Image from "@tiptap/extension-image";
 import Link from "@tiptap/extension-link";
 import Underline from "@tiptap/extension-underline";
 import Placeholder from "@tiptap/extension-placeholder";
-import { useEffect, useCallback, useState, useRef } from "react";
+import { useEffect, useCallback, useState } from "react";
 import { marked } from "marked";
 import TurndownService from "turndown";
 import { uploadFile } from "@/app/lib/api";
@@ -46,7 +46,6 @@ function htmlToMd(html: string): string {
 }
 
 export function MarkdownEditorView({ value, onChange, onSave, onCancel }: MarkdownEditorProps) {
-  const fileInputRef = useRef<HTMLInputElement>(null);
   const [uploading, setUploading] = useState(false);
 
   const editor = useEditor({
@@ -120,19 +119,6 @@ export function MarkdownEditorView({ value, onChange, onSave, onCancel }: Markdo
       setUploading(false);
     }
   }, [editor]);
-
-  // Handle file input change (toolbar button)
-  const handleFileSelect = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
-    const files = e.target.files;
-    if (!files?.length) return;
-    for (const file of Array.from(files)) {
-      if (file.type.startsWith("image/")) {
-        uploadAndInsert(file);
-      }
-    }
-    // Reset so same file can be selected again
-    e.target.value = "";
-  }, [uploadAndInsert]);
 
   // Sync external value changes
   useEffect(() => {
@@ -234,18 +220,27 @@ export function MarkdownEditorView({ value, onChange, onSave, onCancel }: Markdo
             type="button"
             title="Insert image"
             className="rounded px-2 py-1 text-xs font-medium transition-colors text-gray-500 hover:bg-gray-100 hover:text-gray-700 cursor-pointer inline-flex items-center"
-            onClick={() => fileInputRef.current?.click()}
+            onClick={() => {
+              console.log("[editor] image btn click — creating temp input");
+              const input = document.createElement("input");
+              input.type = "file";
+              input.accept = "image/*";
+              input.multiple = true;
+              input.onchange = () => {
+                console.log("[editor] temp input onChange, files:", input.files?.length);
+                if (input.files) {
+                  Array.from(input.files).forEach((f) => {
+                    if (f.type.startsWith("image/")) uploadAndInsert(f);
+                  });
+                }
+                input.remove();
+              };
+              document.body.appendChild(input);
+              input.click();
+            }}
           >
             {uploading ? <SpinnerIcon /> : <ImageIcon />}
           </button>
-          <input
-            ref={fileInputRef}
-            type="file"
-            accept="image/*"
-            multiple
-            className="sr-only"
-            onChange={handleFileSelect}
-          />
         </div>
         <div className="flex items-center gap-2">
           {uploading && (
