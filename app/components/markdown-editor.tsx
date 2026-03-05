@@ -7,9 +7,10 @@ import Image from "@tiptap/extension-image";
 import Link from "@tiptap/extension-link";
 import Underline from "@tiptap/extension-underline";
 import Placeholder from "@tiptap/extension-placeholder";
-import { useEffect, useCallback } from "react";
+import { useEffect, useCallback, useRef, useState } from "react";
 import { marked } from "marked";
 import TurndownService from "turndown";
+import { uploadFile } from "@/app/lib/api";
 
 interface MarkdownEditorProps {
   value: string;
@@ -45,6 +46,9 @@ function htmlToMd(html: string): string {
 }
 
 export function MarkdownEditorView({ value, onChange, onSave, onCancel }: MarkdownEditorProps) {
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  const [uploading, setUploading] = useState(false);
+
   const editor = useEditor({
     immediatelyRender: false,
     extensions: [
@@ -64,8 +68,67 @@ export function MarkdownEditorView({ value, onChange, onSave, onCancel }: Markdo
       attributes: {
         class: "prose prose-sm max-w-none focus:outline-none min-h-[400px] px-8 py-6",
       },
+      handlePaste(view, event) {
+        const items = event.clipboardData?.items;
+        if (!items) return false;
+        for (const item of Array.from(items)) {
+          if (item.type.startsWith("image/")) {
+            event.preventDefault();
+            const file = item.getAsFile();
+            if (file) uploadAndInsert(file, view.state.selection.from);
+            return true;
+          }
+        }
+        return false;
+      },
+      handleDrop(view, event) {
+        const files = event.dataTransfer?.files;
+        if (!files?.length) return false;
+        for (const file of Array.from(files)) {
+          if (file.type.startsWith("image/")) {
+            event.preventDefault();
+            const pos = view.posAtCoords({ left: event.clientX, top: event.clientY })?.pos;
+            uploadAndInsert(file, pos);
+            return true;
+          }
+        }
+        return false;
+      },
     },
   });
+
+  // Upload image to S3 and insert into editor
+  const uploadAndInsert = useCallback(async (file: File, pos?: number) => {
+    if (!editor) return;
+    setUploading(true);
+    try {
+      const url = await uploadFile(file);
+      const name = file.name.replace(/\.[^.]+$/, "");
+      if (pos !== undefined) {
+        editor.chain().focus().setImage({ src: url, alt: name }).run();
+      } else {
+        editor.chain().focus().setImage({ src: url, alt: name }).run();
+      }
+    } catch (err) {
+      console.error("Image upload failed:", err);
+      alert("Image upload failed. Please try again.");
+    } finally {
+      setUploading(false);
+    }
+  }, [editor]);
+
+  // Handle file input change (toolbar button)
+  const handleFileSelect = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
+    const files = e.target.files;
+    if (!files?.length) return;
+    for (const file of Array.from(files)) {
+      if (file.type.startsWith("image/")) {
+        uploadAndInsert(file);
+      }
+    }
+    // Reset so same file can be selected again
+    e.target.value = "";
+  }, [uploadAndInsert]);
 
   // Sync external value changes
   useEffect(() => {
@@ -85,6 +148,16 @@ export function MarkdownEditorView({ value, onChange, onSave, onCancel }: Markdo
 
   return (
     <div className="flex flex-col h-full bg-white">
+      {/* Hidden file input */}
+      <input
+        ref={fileInputRef}
+        type="file"
+        accept="image/*"
+        multiple
+        className="hidden"
+        onChange={handleFileSelect}
+      />
+
       {/* Top bar */}
       <div className="flex items-center justify-between border-b border-gray-200 px-4 py-2 flex-shrink-0">
         <div className="flex items-center gap-1">
@@ -161,8 +234,18 @@ export function MarkdownEditorView({ value, onChange, onSave, onCancel }: Markdo
           >
             —
           </ToolbarBtn>
+          <ToolbarBtn
+            active={false}
+            onClick={() => fileInputRef.current?.click()}
+            title="Insert image"
+          >
+            {uploading ? <SpinnerIcon /> : <ImageIcon />}
+          </ToolbarBtn>
         </div>
         <div className="flex items-center gap-2">
+          {uploading && (
+            <span className="text-xs text-gray-400 animate-pulse">Uploading...</span>
+          )}
           <button
             onClick={onCancel}
             className="rounded-lg border border-gray-200 px-3 py-1.5 text-xs font-medium text-gray-600 hover:bg-gray-50 transition-colors"
@@ -171,7 +254,8 @@ export function MarkdownEditorView({ value, onChange, onSave, onCancel }: Markdo
           </button>
           <button
             onClick={handleSave}
-            className="rounded-lg bg-purple-600 px-4 py-1.5 text-xs font-semibold text-white hover:bg-purple-700 transition-colors"
+            disabled={uploading}
+            className="rounded-lg bg-purple-600 px-4 py-1.5 text-xs font-semibold text-white hover:bg-purple-700 transition-colors disabled:opacity-50"
           >
             Save Changes
           </button>
@@ -283,6 +367,24 @@ function QuoteIcon() {
     <svg className="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round">
       <path d="M3 21c3 0 7-1 7-8V5c0-1.25-.756-2.017-2-2H4c-1.25 0-2 .75-2 1.972V11c0 1.25.75 2 2 2 1 0 1 0 1 1v1c0 1-1 2-2 2s-1 .008-1 1.031V21z" />
       <path d="M15 21c3 0 7-1 7-8V5c0-1.25-.757-2.017-2-2h-4c-1.25 0-2 .75-2 1.972V11c0 1.25.75 2 2 2h.75c0 2.25.25 4-2.75 4v3z" />
+    </svg>
+  );
+}
+
+function ImageIcon() {
+  return (
+    <svg className="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round">
+      <rect x="3" y="3" width="18" height="18" rx="2" ry="2" />
+      <circle cx="8.5" cy="8.5" r="1.5" />
+      <path d="M21 15l-5-5L5 21" />
+    </svg>
+  );
+}
+
+function SpinnerIcon() {
+  return (
+    <svg className="w-3.5 h-3.5 animate-spin" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round">
+      <path d="M21 12a9 9 0 11-6.219-8.56" />
     </svg>
   );
 }
