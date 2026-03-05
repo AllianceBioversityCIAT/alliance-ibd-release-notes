@@ -7,7 +7,7 @@ import Image from "@tiptap/extension-image";
 import Link from "@tiptap/extension-link";
 import Underline from "@tiptap/extension-underline";
 import Placeholder from "@tiptap/extension-placeholder";
-import { useEffect, useCallback, useRef, useState } from "react";
+import { useEffect, useCallback, useState } from "react";
 import { marked } from "marked";
 import TurndownService from "turndown";
 import { uploadFile } from "@/app/lib/api";
@@ -46,7 +46,6 @@ function htmlToMd(html: string): string {
 }
 
 export function MarkdownEditorView({ value, onChange, onSave, onCancel }: MarkdownEditorProps) {
-  const fileInputRef = useRef<HTMLInputElement>(null);
   const [uploading, setUploading] = useState(false);
 
   const editor = useEditor({
@@ -152,15 +151,7 @@ export function MarkdownEditorView({ value, onChange, onSave, onCancel }: Markdo
 
   return (
     <div className="flex flex-col h-full bg-white">
-      {/* Hidden file input */}
-      <input
-        ref={fileInputRef}
-        type="file"
-        accept="image/*"
-        multiple
-        className="hidden"
-        onChange={handleFileSelect}
-      />
+{/* file input is inside toolbar label */}
 
       {/* Top bar */}
       <div className="flex items-center justify-between border-b border-gray-200 px-4 py-2 flex-shrink-0">
@@ -238,13 +229,19 @@ export function MarkdownEditorView({ value, onChange, onSave, onCancel }: Markdo
           >
             —
           </ToolbarBtn>
-          <ToolbarBtn
-            active={false}
-            onClick={() => fileInputRef.current?.click()}
+          <label
             title="Insert image"
+            className="rounded px-2 py-1 text-xs font-medium transition-colors text-gray-500 hover:bg-gray-100 hover:text-gray-700 cursor-pointer inline-flex items-center"
           >
             {uploading ? <SpinnerIcon /> : <ImageIcon />}
-          </ToolbarBtn>
+            <input
+              type="file"
+              accept="image/*"
+              multiple
+              className="hidden"
+              onChange={handleFileSelect}
+            />
+          </label>
         </div>
         <div className="flex items-center gap-2">
           {uploading && (
