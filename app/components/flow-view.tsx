@@ -246,7 +246,7 @@ export function FlowView({ onFullscreenMarkdown, onStreamingChange, onSwitchView
             { id: cRes, type: "result", position: { x: p.x + BELOW.dx, y: p.y + BELOW.dy }, style: { width: 700 },
               data: { markdown: data.release_notes_input, title: `Commits: ${repo}/${branch}`, color: "#24292e", icon: "github", onFullscreen: () => onFullscreenMarkdown(data.release_notes_input) } } as Node,
             { id: genIn, type: "generateInput", position: { x: p.x + RIGHT.dx, y: p.y + RIGHT.dy },
-              data: { onSubmit: (m: LocalMediaItem[], e: UploadedMediaItem[]) => handleGenerate(m, e), disabled: false } } as Node,
+              data: { onSubmit: (m: LocalMediaItem[], e: UploadedMediaItem[], gc: string) => handleGenerate(m, e, gc), disabled: false } } as Node,
           ];
         });
         setEdges((eds) => [
@@ -273,13 +273,13 @@ export function FlowView({ onFullscreenMarkdown, onStreamingChange, onSwitchView
         return nds
           .filter((n) => n.id !== genRes && n.id !== notionIn)
           .map((n) => n.id === genIn
-            ? { ...n, data: { ...n.data, disabled: false, uploadedMedia: currentUploaded, onSubmit: (m: LocalMediaItem[], e: UploadedMediaItem[]) => handleGenerate(m, e), onRegenerate: handleGenerateRegenerate } }
+            ? { ...n, data: { ...n.data, disabled: false, uploadedMedia: currentUploaded, onSubmit: (m: LocalMediaItem[], e: UploadedMediaItem[], gc: string) => handleGenerate(m, e, gc), onRegenerate: handleGenerateRegenerate } }
             : n);
       });
       setEdges((eds) => eds.filter((e) => !e.id.includes(genRes) && !e.id.includes(notionIn)));
     };
 
-    const handleGenerate = async (newLocalMedia: LocalMediaItem[], existingMedia: UploadedMediaItem[]) => {
+    const handleGenerate = async (newLocalMedia: LocalMediaItem[], existingMedia: UploadedMediaItem[], generalContext: string = "") => {
       const genIn = nid(prefix, "generate-input");
       const genLoad = nid(prefix, "generate-loading");
       const genRes = nid(prefix, "generate-result");
@@ -318,7 +318,7 @@ export function FlowView({ onFullscreenMarkdown, onStreamingChange, onSwitchView
 
         onStreamingChange?.(true);
 
-        for await (const chunk of streamReleaseNote({ owner: s.owner, repo: s.repo, branch: s.branch, jira_tickets: s.jiraKeys.length > 0 ? s.jiraKeys : [s.jiraKey], media })) {
+        for await (const chunk of streamReleaseNote({ owner: s.owner, repo: s.repo, branch: s.branch, jira_tickets: s.jiraKeys.length > 0 ? s.jiraKeys : [s.jiraKey], media, general_context: generalContext })) {
           accumulated += chunk;
 
           if (isFirstChunk) {
@@ -382,7 +382,7 @@ export function FlowView({ onFullscreenMarkdown, onStreamingChange, onSwitchView
       } catch (err) {
         onStreamingChange?.(false);
         setNodes((nds) => nds.filter((n) => n.id !== genLoad && n.id !== genRes)
-          .map((n) => n.id === genIn ? { ...n, data: { ...n.data, disabled: false, onSubmit: (m: LocalMediaItem[], e: UploadedMediaItem[]) => handleGenerate(m, e) } } : n));
+          .map((n) => n.id === genIn ? { ...n, data: { ...n.data, disabled: false, onSubmit: (m: LocalMediaItem[], e: UploadedMediaItem[], gc: string) => handleGenerate(m, e, gc) } } : n));
         setEdges((eds) => eds.filter((e) => !e.id.includes(genLoad) && !e.id.includes(genRes)));
         alert(`Generate error: ${err instanceof Error ? err.message : "Unknown error"}`);
       }
@@ -453,7 +453,7 @@ export function FlowView({ onFullscreenMarkdown, onStreamingChange, onSwitchView
     if (n.type === "jiraInput") { data.onSubmit = handleJira; data.onReset = handleJiraReset; }
     else if (n.type === "githubInput") data.onSubmit = (o: string, r: string, b: string) => handleGitHub(o, r, b);
     else if (n.type === "generateInput") {
-      data.onSubmit = (m: LocalMediaItem[], e: UploadedMediaItem[]) => handleGenerate(m, e);
+      data.onSubmit = (m: LocalMediaItem[], e: UploadedMediaItem[], gc: string) => handleGenerate(m, e, gc);
       data.onRegenerate = handleGenerateRegenerate;
     }
     else if (n.type === "result" && typeof data.markdown === "string") data.onFullscreen = () => onFullscreenMarkdown(data.markdown as string);

@@ -42,6 +42,7 @@ export async function* streamReleaseNote(params: {
   branch: string;
   jira_tickets: string[];
   media: { url: string; ai_context: string }[];
+  general_context?: string;
 }): AsyncGenerator<string, void, unknown> {
   const res = await fetch("/api/release-notes/generate", {
     method: "POST",

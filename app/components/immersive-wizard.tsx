@@ -10,8 +10,9 @@ import { JiraStep } from "./jira-step";
 import { GitHubStep } from "./github-step";
 import { GenerateStep } from "./generate-step";
 import { HistoryPanel } from "./history-panel";
-import { HistoryIcon, CheckIcon, XIcon, SparklesIcon } from "./icons";
+import { HistoryIcon, CheckIcon, XIcon, SparklesIcon, EditIcon } from "./icons";
 import { MarkdownRenderer } from "./markdown-renderer";
+import { MarkdownEditorView } from "./markdown-editor";
 import { CopyButton } from "./copy-button";
 import { JiraIcon, GitHubIcon, AIIcon, GridIcon, FocusIcon, FlowIcon } from "./brand-icons";
 import { PanoramicView } from "./panoramic-view";
@@ -59,6 +60,8 @@ export function ImmersiveWizard() {
   const [activeStep, setActiveStep] = useState(1);
   const [mouse, setMouse] = useState({ x: 0, y: 0 });
   const [markdownFullscreen, setMarkdownFullscreen] = useState(false);
+  const [editingMarkdown, setEditingMarkdown] = useState(false);
+  const [editDraft, setEditDraft] = useState("");
   const fullscreenScrollRef = useRef<HTMLDivElement>(null);
 
   // Mouse tracking (state for particles, ref for background)
@@ -549,35 +552,58 @@ export function ImmersiveWizard() {
       {/* Markdown fullscreen overlay - auto-opens on generate, above everything */}
       {markdownFullscreen && generateResult && (
         <div className="fixed inset-0 z-[70] flex flex-col bg-white animate-fade-in">
-          <div className="flex items-center justify-between border-b border-gray-200 px-6 py-3 flex-shrink-0">
-            <div className="flex items-center gap-3">
-              <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-gradient-to-br from-purple-500 to-violet-600 text-white">
-                <SparklesIcon className="w-4 h-4" />
+          {editingMarkdown ? (
+            <MarkdownEditorView
+              value={editDraft}
+              onChange={setEditDraft}
+              onSave={(v) => {
+                setGenerateResult(v);
+                setEditingMarkdown(false);
+              }}
+              onCancel={() => setEditingMarkdown(false)}
+            />
+          ) : (
+            <>
+              <div className="flex items-center justify-between border-b border-gray-200 px-6 py-3 flex-shrink-0">
+                <div className="flex items-center gap-3">
+                  <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-gradient-to-br from-purple-500 to-violet-600 text-white">
+                    <SparklesIcon className="w-4 h-4" />
+                  </div>
+                  <span className="text-sm font-semibold text-gray-900">
+                    {generateStreaming ? "Generating..." : "Release Note"}
+                  </span>
+                  <div className={`h-2 w-2 rounded-full ${generateStreaming ? "bg-accent animate-pulse" : "bg-emerald-500"}`} />
+                </div>
+                <div className="flex items-center gap-2">
+                  {!generateStreaming && (
+                    <button
+                      onClick={() => { setEditDraft(generateResult); setEditingMarkdown(true); }}
+                      className="flex items-center gap-1.5 rounded-lg bg-purple-50 px-3 py-2 text-xs font-medium text-purple-700 hover:bg-purple-100 transition-colors"
+                    >
+                      <EditIcon className="w-3.5 h-3.5" />
+                      Edit
+                    </button>
+                  )}
+                  <CopyButton text={generateResult} />
+                  <button
+                    onClick={() => setMarkdownFullscreen(false)}
+                    className="flex items-center gap-1.5 rounded-lg bg-gray-100 px-3 py-2 text-xs font-medium text-gray-600 hover:bg-gray-200 transition-colors"
+                  >
+                    <XIcon className="w-3.5 h-3.5" />
+                    Close
+                  </button>
+                </div>
               </div>
-              <span className="text-sm font-semibold text-gray-900">
-                {generateStreaming ? "Generating..." : "Release Note"}
-              </span>
-              <div className={`h-2 w-2 rounded-full ${generateStreaming ? "bg-accent animate-pulse" : "bg-emerald-500"}`} />
-            </div>
-            <div className="flex items-center gap-2">
-              <CopyButton text={generateResult} />
-              <button
-                onClick={() => setMarkdownFullscreen(false)}
-                className="flex items-center gap-1.5 rounded-lg bg-gray-100 px-3 py-2 text-xs font-medium text-gray-600 hover:bg-gray-200 transition-colors"
-              >
-                <XIcon className="w-3.5 h-3.5" />
-                Close
-              </button>
-            </div>
-          </div>
-          <div ref={fullscreenScrollRef} className="flex-1 overflow-y-auto p-6 sm:p-10">
-            <div className="mx-auto max-w-3xl">
-              <MarkdownRenderer content={generateResult} />
-              {generateStreaming && (
-                <span aria-hidden="true" className="inline-block h-4 w-0.5 bg-accent align-middle ml-0.5 animate-blink" />
-              )}
-            </div>
-          </div>
+              <div ref={fullscreenScrollRef} className="flex-1 overflow-y-auto p-6 sm:p-10">
+                <div className="mx-auto max-w-3xl">
+                  <MarkdownRenderer content={generateResult} />
+                  {generateStreaming && (
+                    <span aria-hidden="true" className="inline-block h-4 w-0.5 bg-accent align-middle ml-0.5 animate-blink" />
+                  )}
+                </div>
+              </div>
+            </>
+          )}
         </div>
       )}
     </div>

@@ -1,14 +1,14 @@
 "use client";
 
-import { memo, useState, useEffect } from "react";
+import { memo, useState, useEffect, useRef } from "react";
 import { Handle, Position, type NodeProps } from "@xyflow/react";
 import { DEFAULTS } from "@/app/lib/constants";
 import type { LocalMediaItem, UploadedMediaItem, NotionPublishPayload, NotionPublishResult } from "@/app/lib/types";
-import { LoaderIcon, TrashIcon, ImageIcon, ExpandIcon, XIcon, PlusIcon, RefreshIcon, CheckIcon } from "./icons";
+import { LoaderIcon, ImageIcon, ExpandIcon, XIcon, PlusIcon, RefreshIcon, CheckIcon } from "./icons";
 import { MarkdownRenderer } from "./markdown-renderer";
 import { CopyButton } from "./copy-button";
 import { JiraIcon, GitHubIcon, AIIcon, NotionIcon } from "./brand-icons";
-import { MediaUploadZone } from "./media-upload-zone";
+import { ChatMediaInput } from "./chat-media-input";
 import { getNotionOptions, uploadFile } from "@/app/lib/api";
 
 /* ── Shared Handle Styles ── */
@@ -160,43 +160,34 @@ export const GitHubInputNode = memo(function GitHubInputNode({ data }: NodeProps
 /* ═══════════════════════════════════════════════════
    3. Generate Input Node
    Handles: target-left (← GitHub), source-bottom (↓ result)
-   Supports re-generation: after first generate, shows uploaded media
-   and allows adding/removing before re-generating.
+   ChatGPT-style media input with paste, drag-drop, and per-image context.
+   Supports re-generation with previously uploaded media.
    ═══════════════════════════════════════════════════ */
 export const GenerateInputNode = memo(function GenerateInputNode({ data }: NodeProps) {
   const { onSubmit, onRegenerate, disabled, uploadedMedia: initialUploaded } = data as {
-    onSubmit: (newMedia: LocalMediaItem[], existingMedia: UploadedMediaItem[]) => void;
+    onSubmit: (newMedia: LocalMediaItem[], existingMedia: UploadedMediaItem[], generalContext: string) => void;
     onRegenerate?: () => void;
     disabled: boolean;
     uploadedMedia?: UploadedMediaItem[];
   };
   const [localMedia, setLocalMedia] = useState<LocalMediaItem[]>([]);
   const [uploaded, setUploaded] = useState<UploadedMediaItem[]>(initialUploaded ?? []);
+  const [generalContext, setGeneralContext] = useState("");
+  const prevDisabledRef = useRef(disabled);
 
-  // Sync uploaded media when node data changes (e.g., re-enable after generate)
+  // When transitioning disabled→enabled (re-generate), clear local media and sync uploaded
   useEffect(() => {
-    if (initialUploaded) setUploaded(initialUploaded);
-  }, [initialUploaded]);
-
-  function removeLocal(i: number) {
-    const item = localMedia[i];
-    if (item.previewUrl) URL.revokeObjectURL(item.previewUrl);
-    setLocalMedia(localMedia.filter((_, idx) => idx !== i));
-  }
-  function updateLocalContext(i: number, value: string) {
-    setLocalMedia(localMedia.map((item, idx) => (idx === i ? { ...item, ai_context: value } : item)));
-  }
-  function removeUploaded(i: number) {
-    setUploaded(uploaded.filter((_, idx) => idx !== i));
-  }
-  function updateUploadedContext(i: number, value: string) {
-    setUploaded(uploaded.map((item, idx) => (idx === i ? { ...item, ai_context: value } : item)));
-  }
+    if (prevDisabledRef.current && !disabled) {
+      setLocalMedia([]);
+      if (initialUploaded) setUploaded(initialUploaded);
+    }
+    prevDisabledRef.current = disabled;
+  }, [disabled, initialUploaded]);
 
   const totalMedia = localMedia.length + uploaded.length;
 
   return (
-    <div className={`rounded-2xl border-2 shadow-xl w-[400px] transition-all ${disabled ? "border-gray-600 bg-gray-800/80" : "border-purple-500/40 bg-[#1e1e38]"}`}>
+    <div className={`rounded-2xl border-2 shadow-xl w-[420px] transition-all ${disabled ? "border-gray-600 bg-gray-800/80" : "border-purple-500/40 bg-[#1e1e38]"}`}>
       <Handle type="target" position={Position.Left} id="left" style={hLeft} />
       <div className="flex items-center gap-2 px-4 py-3 rounded-t-2xl" style={{ background: "linear-gradient(135deg, rgba(124,58,237,0.25), transparent)" }}>
         <div className="flex h-7 w-7 items-center justify-center rounded-lg text-white shadow-md" style={{ background: "linear-gradient(135deg, #7c3aed, #a855f7)" }}>
@@ -216,83 +207,28 @@ export const GenerateInputNode = memo(function GenerateInputNode({ data }: NodeP
         )}
       </div>
       <div className="p-4 space-y-3 border-t border-white/5">
-        <div className="space-y-2">
-          <div className="flex items-center gap-1.5">
-            <ImageIcon className="w-3.5 h-3.5 text-white/40" />
-            <span className="text-xs font-medium text-white/70">Media ({totalMedia})</span>
-          </div>
-
-          {/* All media items — scrollable */}
-          {totalMedia > 0 && !disabled && (
-            <div className="nowheel space-y-2 max-h-[400px] overflow-y-auto pr-1">
-              {/* Already uploaded items */}
-              {uploaded.map((item, i) => (
-                <div key={`up-${i}`} className="rounded-lg border border-emerald-500/20 bg-emerald-500/5 p-2 space-y-1.5">
-                  <div className="flex items-center gap-2">
-                    <div className="flex h-6 w-6 flex-shrink-0 items-center justify-center rounded bg-emerald-500/20">
-                      <CheckIcon className="w-3 h-3 text-emerald-400" />
-                    </div>
-                    <p className="flex-1 text-[11px] font-medium text-white/60 truncate">{item.fileName}</p>
-                    <button onClick={() => removeUploaded(i)} className="rounded p-1 text-white/30 hover:bg-red-500/20 hover:text-red-400 flex-shrink-0">
-                      <XIcon className="w-3 h-3" />
-                    </button>
-                  </div>
-                  <textarea value={item.ai_context} onChange={(e) => updateUploadedContext(i, e.target.value)}
-                    placeholder="Describe what this image shows and how it relates to the release..."
-                    rows={2}
-                    className="nowheel w-full rounded border border-white/10 bg-white/5 px-2 py-1.5 text-[11px] text-white placeholder:text-white/25 outline-none focus:ring-1 focus:ring-purple-500/40 resize-none" />
-                </div>
-              ))}
-              {/* New local files */}
-              {localMedia.map((item, i) => (
-                <div key={`loc-${i}`} className="rounded-lg border border-white/10 bg-white/5 p-2 space-y-1.5">
-                  <div className="flex items-center gap-2">
-                    {item.type === "image" && item.previewUrl && (
-                      <div className="h-12 w-16 flex-shrink-0 overflow-hidden rounded border border-white/10 bg-white/5">
-                        {/* eslint-disable-next-line @next/next/no-img-element */}
-                        <img src={item.previewUrl} alt={item.file.name} className="h-full w-full object-cover" />
-                      </div>
-                    )}
-                    {item.type === "video" && item.previewUrl && (
-                      <div className="h-12 w-16 flex-shrink-0 overflow-hidden rounded border border-white/10 bg-white/5">
-                        <video src={item.previewUrl} className="h-full w-full object-cover" muted />
-                      </div>
-                    )}
-                    {item.type === "file" && (
-                      <div className="flex h-12 w-16 flex-shrink-0 items-center justify-center rounded border border-white/10 bg-white/5">
-                        <span className="text-[8px] text-white/40 text-center px-0.5 break-all line-clamp-2">{item.file.name}</span>
-                      </div>
-                    )}
-                    <p className="flex-1 text-[11px] font-medium text-white/60 truncate">{item.file.name}</p>
-                    <button onClick={() => removeLocal(i)} className="rounded p-1 text-white/30 hover:bg-red-500/20 hover:text-red-400 flex-shrink-0">
-                      <TrashIcon className="w-3.5 h-3.5" />
-                    </button>
-                  </div>
-                  <textarea value={item.ai_context} onChange={(e) => updateLocalContext(i, e.target.value)}
-                    placeholder="Describe what this image shows and how it relates to the release..."
-                    rows={2}
-                    className="nowheel w-full rounded border border-white/10 bg-white/5 px-2 py-1.5 text-[11px] text-white placeholder:text-white/25 outline-none focus:ring-1 focus:ring-purple-500/40 resize-none" />
-                </div>
-              ))}
-            </div>
-          )}
-
-          {/* Upload zone */}
-          {!disabled && (
-            <MediaUploadZone
-              variant="dark"
-              disabled={disabled}
-              onFilesAdded={(items) => setLocalMedia((prev) => [...prev, ...items])}
+        {!disabled ? (
+          <>
+            <ChatMediaInput
+              localMedia={localMedia}
+              setLocalMedia={setLocalMedia}
+              uploaded={uploaded}
+              setUploaded={setUploaded}
+              generalContext={generalContext}
+              setGeneralContext={setGeneralContext}
             />
-          )}
-        </div>
-        {!disabled && (
-          <button
-            onClick={() => onSubmit(localMedia, uploaded)}
-            className="w-full rounded-lg bg-gradient-to-r from-purple-600 to-violet-600 px-4 py-2.5 text-sm font-semibold text-white hover:from-purple-700 hover:to-violet-700 transition-all"
-          >
-            {uploaded.length > 0 ? "Re-generate Release Note" : "Generate Release Note"}
-          </button>
+            <button
+              onClick={() => onSubmit(localMedia, uploaded, generalContext)}
+              className="w-full rounded-lg bg-gradient-to-r from-purple-600 to-violet-600 px-4 py-2.5 text-sm font-semibold text-white hover:from-purple-700 hover:to-violet-700 transition-all"
+            >
+              {uploaded.length > 0 ? "Re-generate Release Note" : "Generate Release Note"}
+            </button>
+          </>
+        ) : (
+          <div className="flex items-center gap-1.5 text-xs text-white/40">
+            <ImageIcon className="w-3.5 h-3.5" />
+            <span>{totalMedia} media file{totalMedia !== 1 ? "s" : ""} attached</span>
+          </div>
         )}
       </div>
       <Handle type="source" position={Position.Bottom} id="bottom" style={hBottom} />

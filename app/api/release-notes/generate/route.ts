@@ -67,7 +67,7 @@ CRITICAL RULES for media:
 
 export async function POST(req: NextRequest) {
   try {
-    const { owner, repo, branch, jira_ticket, jira_tickets, media } = await req.json();
+    const { owner, repo, branch, jira_ticket, jira_tickets, media, general_context } = await req.json();
     // Accept jira_tickets (array) or legacy jira_ticket (string)
     const jiraKeys: string[] =
       jira_tickets ?? (jira_ticket ? [jira_ticket] : []);
@@ -90,7 +90,8 @@ export async function POST(req: NextRequest) {
       `${release_notes_input}\n\n` +
       `${jira_context}\n\n` +
       `Jira Reporter(s) (people who identified and reported this need): ${reporters.join(", ")}\n\n` +
-      `Media assets:\n${mediaSection}`;
+      `Media assets:\n${mediaSection}` +
+      (general_context ? `\n\nAdditional context from the user about the media:\n${general_context}` : "");
 
     const openaiRes = await fetch("https://api.openai.com/v1/chat/completions", {
       method: "POST",
