@@ -238,7 +238,7 @@ export function MarkdownEditorView({ value, onChange, onSave, onCancel }: Markdo
               type="file"
               accept="image/*"
               multiple
-              className="hidden"
+              className="absolute w-0 h-0 overflow-hidden opacity-0"
               onChange={handleFileSelect}
             />
           </label>
