@@ -46,6 +46,7 @@ function htmlToMd(html: string): string {
 
 export function MarkdownEditorView({ value, onChange, onSave, onCancel }: MarkdownEditorProps) {
   const editor = useEditor({
+    immediatelyRender: false,
     extensions: [
       StarterKit.configure({
         heading: { levels: [1, 2, 3] },
