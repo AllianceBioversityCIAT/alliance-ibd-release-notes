@@ -234,13 +234,7 @@ export function MarkdownEditorView({ value, onChange, onSave, onCancel }: Markdo
             type="button"
             title="Insert image"
             className="rounded px-2 py-1 text-xs font-medium transition-colors text-gray-500 hover:bg-gray-100 hover:text-gray-700 cursor-pointer inline-flex items-center"
-            onClick={() => {
-              console.log("[editor] image button clicked, ref:", fileInputRef.current);
-              setTimeout(() => {
-                fileInputRef.current?.click();
-                console.log("[editor] triggered input click");
-              }, 50);
-            }}
+            onClick={() => fileInputRef.current?.click()}
           >
             {uploading ? <SpinnerIcon /> : <ImageIcon />}
           </button>
@@ -249,11 +243,8 @@ export function MarkdownEditorView({ value, onChange, onSave, onCancel }: Markdo
             type="file"
             accept="image/*"
             multiple
-            style={{ position: "fixed", top: -9999, left: -9999 }}
-            onChange={(e) => {
-              console.log("[editor] file input onChange, files:", e.target.files?.length);
-              handleFileSelect(e);
-            }}
+            className="sr-only"
+            onChange={handleFileSelect}
           />
         </div>
         <div className="flex items-center gap-2">
