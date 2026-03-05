@@ -216,31 +216,25 @@ export function MarkdownEditorView({ value, onChange, onSave, onCancel }: Markdo
           >
             —
           </ToolbarBtn>
-          <button
-            type="button"
-            title="Insert image"
-            className="rounded px-2 py-1 text-xs font-medium transition-colors text-gray-500 hover:bg-gray-100 hover:text-gray-700 cursor-pointer inline-flex items-center"
-            onClick={() => {
-              console.log("[editor] image btn click — creating temp input");
-              const input = document.createElement("input");
-              input.type = "file";
-              input.accept = "image/*";
-              input.multiple = true;
-              input.onchange = () => {
-                console.log("[editor] temp input onChange, files:", input.files?.length);
-                if (input.files) {
-                  Array.from(input.files).forEach((f) => {
+          <div className="relative rounded px-2 py-1 text-gray-500 hover:bg-gray-100 hover:text-gray-700 inline-flex items-center" title="Insert image">
+            {uploading ? <SpinnerIcon /> : <ImageIcon />}
+            <input
+              type="file"
+              accept="image/*"
+              multiple
+              className="absolute inset-0 w-full h-full opacity-0 cursor-pointer"
+              onChange={(e) => {
+                console.log("[editor] native file input change, files:", e.target.files?.length);
+                const files = e.target.files;
+                if (files) {
+                  Array.from(files).forEach((f) => {
                     if (f.type.startsWith("image/")) uploadAndInsert(f);
                   });
                 }
-                input.remove();
-              };
-              document.body.appendChild(input);
-              input.click();
-            }}
-          >
-            {uploading ? <SpinnerIcon /> : <ImageIcon />}
-          </button>
+                e.target.value = "";
+              }}
+            />
+          </div>
         </div>
         <div className="flex items-center gap-2">
           {uploading && (
