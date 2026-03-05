@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
-import { S3Client, PutObjectCommand } from "@aws-sdk/client-s3";
+import { S3Client, PutObjectCommand, GetObjectCommand } from "@aws-sdk/client-s3";
+import { getSignedUrl } from "@aws-sdk/s3-request-presigner";
 import crypto from "crypto";
 
 const s3 = new S3Client({
@@ -9,6 +10,8 @@ const s3 = new S3Client({
     secretAccessKey: process.env.AWS_SECRET_ACCESS_KEY!,
   },
 });
+
+const PRESIGN_EXPIRES = 7 * 24 * 60 * 60; // 7 days in seconds
 
 export async function POST(req: NextRequest) {
   try {
@@ -20,12 +23,13 @@ export async function POST(req: NextRequest) {
     }
 
     const originalName = (file as File).name || "upload";
+    // Sanitize filename: replace special unicode spaces and non-ASCII with underscores
+    const safeName = originalName.replace(/[^\x20-\x7E]/g, "_").replace(/\s+/g, "_");
     const date = new Date().toISOString().split("T")[0].replace(/-/g, "");
     const uuid = crypto.randomUUID().substring(0, 8);
-    const fileName = `${date}_${uuid}_${originalName}`;
+    const fileName = `${date}_${uuid}_${safeName}`;
 
     const bucket = process.env.AWS_S3_BUCKET ?? "release-note-files";
-    const region = process.env.AWS_REGION ?? "us-east-1";
 
     const buffer = Buffer.from(await file.arrayBuffer());
 
@@ -38,7 +42,13 @@ export async function POST(req: NextRequest) {
       })
     );
 
-    const Location = `https://${bucket}.s3.${region}.amazonaws.com/${fileName}`;
+    // Generate a presigned URL so the file is accessible without public bucket policy
+    const Location = await getSignedUrl(
+      s3,
+      new GetObjectCommand({ Bucket: bucket, Key: fileName }),
+      { expiresIn: PRESIGN_EXPIRES }
+    );
+
     return NextResponse.json({ Location });
   } catch (e) {
     return NextResponse.json(

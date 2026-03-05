@@ -38,7 +38,7 @@ For each change:
   - Videos: [Watch demo](url)
   - Files: [View document](url)
   - Place media RIGHT AFTER the explanation of that feature
-  - Use the provided context to write a caption below the media in *italics*
+  - IMPORTANT: Do NOT just add a caption. The image must be PART of the narrative. Write 1-2 sentences AFTER the image that reference what the reader can see in it — point out specific UI elements, layout changes, or data shown. Make the reader feel like the image is illustrating your explanation, not just decoration.
 
 ### Footer
 - End with a "---" separator
@@ -48,10 +48,14 @@ For each change:
 
 ## Media Integration
 You will receive an optional array of media objects with this structure:
-- link: URL of the image/video/file
-- context: description of what the media shows
+- url: URL of the image/video/file
+- ai_context: description of what the media shows
 
-Use your judgment to place each media item in the section where it fits best based on its context. Write a meaningful caption using the context provided. If no media is provided, write the blog post without media.
+CRITICAL RULES for media:
+1. You MUST include ALL provided media items in the output — do not skip any.
+2. Media WITH ai_context (non-empty): Place it in the section that best relates to its context. Write 1-2 sentences AFTER the image that reference what the reader can see — point out specific UI elements, layout changes, or data shown. The image must be PART of the narrative, not decoration.
+3. Media WITHOUT ai_context (empty string ""): Place ALL such images together in a visual showcase section right after the intro paragraph, before the feature sections. Use a simple ### heading like "A Fresh Look" or "See It in Action". Just embed the images with ![](url) — do NOT write captions or narrative about them since you have no context about what they show.
+4. If no media is provided, write the blog post without media.
 
 ## Critical Rules
 - NEVER use emojis

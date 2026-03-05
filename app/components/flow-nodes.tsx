@@ -3,7 +3,7 @@
 import { memo, useState, useEffect } from "react";
 import { Handle, Position, type NodeProps } from "@xyflow/react";
 import { DEFAULTS } from "@/app/lib/constants";
-import type { LocalMediaItem, NotionPublishPayload, NotionPublishResult } from "@/app/lib/types";
+import type { LocalMediaItem, UploadedMediaItem, NotionPublishPayload, NotionPublishResult } from "@/app/lib/types";
 import { LoaderIcon, TrashIcon, ImageIcon, ExpandIcon, XIcon, PlusIcon, RefreshIcon, CheckIcon } from "./icons";
 import { MarkdownRenderer } from "./markdown-renderer";
 import { CopyButton } from "./copy-button";
@@ -160,89 +160,138 @@ export const GitHubInputNode = memo(function GitHubInputNode({ data }: NodeProps
 /* ═══════════════════════════════════════════════════
    3. Generate Input Node
    Handles: target-left (← GitHub), source-bottom (↓ result)
+   Supports re-generation: after first generate, shows uploaded media
+   and allows adding/removing before re-generating.
    ═══════════════════════════════════════════════════ */
 export const GenerateInputNode = memo(function GenerateInputNode({ data }: NodeProps) {
-  const { onSubmit, disabled } = data as {
-    onSubmit: (media: LocalMediaItem[]) => void;
+  const { onSubmit, onRegenerate, disabled, uploadedMedia: initialUploaded } = data as {
+    onSubmit: (newMedia: LocalMediaItem[], existingMedia: UploadedMediaItem[]) => void;
+    onRegenerate?: () => void;
     disabled: boolean;
+    uploadedMedia?: UploadedMediaItem[];
   };
-  const [media, setMedia] = useState<LocalMediaItem[]>([]);
+  const [localMedia, setLocalMedia] = useState<LocalMediaItem[]>([]);
+  const [uploaded, setUploaded] = useState<UploadedMediaItem[]>(initialUploaded ?? []);
 
-  function removeMedia(i: number) {
-    const item = media[i];
+  // Sync uploaded media when node data changes (e.g., re-enable after generate)
+  useEffect(() => {
+    if (initialUploaded) setUploaded(initialUploaded);
+  }, [initialUploaded]);
+
+  function removeLocal(i: number) {
+    const item = localMedia[i];
     if (item.previewUrl) URL.revokeObjectURL(item.previewUrl);
-    setMedia(media.filter((_, idx) => idx !== i));
+    setLocalMedia(localMedia.filter((_, idx) => idx !== i));
   }
-  function updateContext(i: number, value: string) {
-    setMedia(media.map((item, idx) => (idx === i ? { ...item, ai_context: value } : item)));
+  function updateLocalContext(i: number, value: string) {
+    setLocalMedia(localMedia.map((item, idx) => (idx === i ? { ...item, ai_context: value } : item)));
   }
+  function removeUploaded(i: number) {
+    setUploaded(uploaded.filter((_, idx) => idx !== i));
+  }
+  function updateUploadedContext(i: number, value: string) {
+    setUploaded(uploaded.map((item, idx) => (idx === i ? { ...item, ai_context: value } : item)));
+  }
+
+  const totalMedia = localMedia.length + uploaded.length;
 
   return (
-    <div className={`rounded-2xl border-2 shadow-xl w-[340px] transition-all ${disabled ? "border-gray-600 bg-gray-800/80" : "border-purple-500/40 bg-[#1e1e38]"}`}>
+    <div className={`rounded-2xl border-2 shadow-xl w-[400px] transition-all ${disabled ? "border-gray-600 bg-gray-800/80" : "border-purple-500/40 bg-[#1e1e38]"}`}>
       <Handle type="target" position={Position.Left} id="left" style={hLeft} />
       <div className="flex items-center gap-2 px-4 py-3 rounded-t-2xl" style={{ background: "linear-gradient(135deg, rgba(124,58,237,0.25), transparent)" }}>
         <div className="flex h-7 w-7 items-center justify-center rounded-lg text-white shadow-md" style={{ background: "linear-gradient(135deg, #7c3aed, #a855f7)" }}>
           <AIIcon className="w-4 h-4" />
         </div>
         <span className="text-sm font-semibold text-white">Generate Release Note</span>
-        {disabled && <span className="ml-auto text-[10px] font-medium text-emerald-400 bg-emerald-500/20 rounded-full px-2 py-0.5">Done</span>}
+        {disabled && (
+          <>
+            <span className="ml-auto text-[10px] font-medium text-emerald-400 bg-emerald-500/20 rounded-full px-2 py-0.5">Done</span>
+            {onRegenerate && (
+              <button onClick={onRegenerate}
+                className="flex items-center gap-1 rounded-md bg-white/10 px-2 py-1 text-[10px] font-medium text-white/60 hover:bg-purple-500/20 hover:text-purple-400 transition-colors">
+                <RefreshIcon className="w-3 h-3" /> Re-generate
+              </button>
+            )}
+          </>
+        )}
       </div>
       <div className="p-4 space-y-3 border-t border-white/5">
         <div className="space-y-2">
           <div className="flex items-center gap-1.5">
             <ImageIcon className="w-3.5 h-3.5 text-white/40" />
-            <span className="text-xs font-medium text-white/70">Media ({media.length})</span>
+            <span className="text-xs font-medium text-white/70">Media ({totalMedia})</span>
           </div>
-          {/* Local files */}
-          {media.length > 0 && !disabled && (
-            <div className="space-y-1.5 max-h-[180px] overflow-y-auto">
-              {media.map((item, i) => (
-                <div key={i} className="flex items-start gap-1.5 rounded-md border border-white/5 bg-white/5 p-1.5">
-                  {/* Preview */}
-                  {item.type === "image" && item.previewUrl && (
-                    <div className="h-10 w-14 flex-shrink-0 overflow-hidden rounded border border-white/10 bg-white/5">
-                      {/* eslint-disable-next-line @next/next/no-img-element */}
-                      <img src={item.previewUrl} alt={item.file.name} className="h-full w-full object-cover" />
+
+          {/* All media items — scrollable */}
+          {totalMedia > 0 && !disabled && (
+            <div className="nowheel space-y-2 max-h-[400px] overflow-y-auto pr-1">
+              {/* Already uploaded items */}
+              {uploaded.map((item, i) => (
+                <div key={`up-${i}`} className="rounded-lg border border-emerald-500/20 bg-emerald-500/5 p-2 space-y-1.5">
+                  <div className="flex items-center gap-2">
+                    <div className="flex h-6 w-6 flex-shrink-0 items-center justify-center rounded bg-emerald-500/20">
+                      <CheckIcon className="w-3 h-3 text-emerald-400" />
                     </div>
-                  )}
-                  {item.type === "video" && item.previewUrl && (
-                    <div className="h-10 w-14 flex-shrink-0 overflow-hidden rounded border border-white/10 bg-white/5">
-                      <video src={item.previewUrl} className="h-full w-full object-cover" muted />
-                    </div>
-                  )}
-                  {item.type === "file" && (
-                    <div className="flex h-10 w-14 flex-shrink-0 items-center justify-center rounded border border-white/10 bg-white/5">
-                      <span className="text-[8px] text-white/40 text-center px-0.5 break-all line-clamp-2">{item.file.name}</span>
-                    </div>
-                  )}
-                  <div className="flex-1 space-y-1">
-                    <p className="text-[10px] font-medium text-white/60 truncate">{item.file.name}</p>
-                    <input type="text" value={item.ai_context} onChange={(e) => updateContext(i, e.target.value)}
-                      placeholder="Context for AI"
-                      className="w-full rounded border border-white/10 bg-white/5 px-2 py-1 text-[11px] text-white placeholder:text-white/25 outline-none focus:ring-1 focus:ring-purple-500/40" />
+                    <p className="flex-1 text-[11px] font-medium text-white/60 truncate">{item.fileName}</p>
+                    <button onClick={() => removeUploaded(i)} className="rounded p-1 text-white/30 hover:bg-red-500/20 hover:text-red-400 flex-shrink-0">
+                      <XIcon className="w-3 h-3" />
+                    </button>
                   </div>
-                  <button onClick={() => removeMedia(i)} className="rounded p-1 text-white/30 hover:bg-red-500/20 hover:text-red-400">
-                    <TrashIcon className="w-3 h-3" />
-                  </button>
+                  <textarea value={item.ai_context} onChange={(e) => updateUploadedContext(i, e.target.value)}
+                    placeholder="Describe what this image shows and how it relates to the release..."
+                    rows={2}
+                    className="nowheel w-full rounded border border-white/10 bg-white/5 px-2 py-1.5 text-[11px] text-white placeholder:text-white/25 outline-none focus:ring-1 focus:ring-purple-500/40 resize-none" />
+                </div>
+              ))}
+              {/* New local files */}
+              {localMedia.map((item, i) => (
+                <div key={`loc-${i}`} className="rounded-lg border border-white/10 bg-white/5 p-2 space-y-1.5">
+                  <div className="flex items-center gap-2">
+                    {item.type === "image" && item.previewUrl && (
+                      <div className="h-12 w-16 flex-shrink-0 overflow-hidden rounded border border-white/10 bg-white/5">
+                        {/* eslint-disable-next-line @next/next/no-img-element */}
+                        <img src={item.previewUrl} alt={item.file.name} className="h-full w-full object-cover" />
+                      </div>
+                    )}
+                    {item.type === "video" && item.previewUrl && (
+                      <div className="h-12 w-16 flex-shrink-0 overflow-hidden rounded border border-white/10 bg-white/5">
+                        <video src={item.previewUrl} className="h-full w-full object-cover" muted />
+                      </div>
+                    )}
+                    {item.type === "file" && (
+                      <div className="flex h-12 w-16 flex-shrink-0 items-center justify-center rounded border border-white/10 bg-white/5">
+                        <span className="text-[8px] text-white/40 text-center px-0.5 break-all line-clamp-2">{item.file.name}</span>
+                      </div>
+                    )}
+                    <p className="flex-1 text-[11px] font-medium text-white/60 truncate">{item.file.name}</p>
+                    <button onClick={() => removeLocal(i)} className="rounded p-1 text-white/30 hover:bg-red-500/20 hover:text-red-400 flex-shrink-0">
+                      <TrashIcon className="w-3.5 h-3.5" />
+                    </button>
+                  </div>
+                  <textarea value={item.ai_context} onChange={(e) => updateLocalContext(i, e.target.value)}
+                    placeholder="Describe what this image shows and how it relates to the release..."
+                    rows={2}
+                    className="nowheel w-full rounded border border-white/10 bg-white/5 px-2 py-1.5 text-[11px] text-white placeholder:text-white/25 outline-none focus:ring-1 focus:ring-purple-500/40 resize-none" />
                 </div>
               ))}
             </div>
           )}
+
           {/* Upload zone */}
           {!disabled && (
             <MediaUploadZone
               variant="dark"
               disabled={disabled}
-              onFilesAdded={(items) => setMedia((prev) => [...prev, ...items])}
+              onFilesAdded={(items) => setLocalMedia((prev) => [...prev, ...items])}
             />
           )}
         </div>
         {!disabled && (
           <button
-            onClick={() => onSubmit(media)}
+            onClick={() => onSubmit(localMedia, uploaded)}
             className="w-full rounded-lg bg-gradient-to-r from-purple-600 to-violet-600 px-4 py-2.5 text-sm font-semibold text-white hover:from-purple-700 hover:to-violet-700 transition-all"
           >
-            Generate Release Note
+            {uploaded.length > 0 ? "Re-generate Release Note" : "Generate Release Note"}
           </button>
         )}
       </div>
@@ -377,7 +426,7 @@ export const NotionInputNode = memo(function NotionInputNode({ data }: NodeProps
   }
 
   return (
-    <div className="rounded-2xl border-2 shadow-xl w-[300px] transition-all border-gray-600/40 bg-[#1e1e38]">
+    <div className="rounded-2xl border-2 shadow-xl w-[360px] transition-all border-gray-600/40 bg-[#1e1e38]">
       <Handle type="target" position={Position.Left} id="left" style={hLeft} />
       <div className="flex items-center gap-2 px-4 py-3 rounded-t-2xl" style={{ background: "linear-gradient(135deg, rgba(0,0,0,0.25), transparent)" }}>
         <div className="flex h-7 w-7 items-center justify-center rounded-lg bg-black text-white shadow-md">
@@ -409,7 +458,7 @@ export const NotionInputNode = memo(function NotionInputNode({ data }: NodeProps
               <label className="text-[10px] font-medium text-white/40 mb-0.5 block">Projects</label>
               <div
                 className="nowheel rounded-md border border-white/10 bg-white/5 p-2 grid grid-cols-2 gap-x-3 gap-y-1"
-                style={{ maxHeight: 112, overflowY: "scroll" }}
+                style={{ maxHeight: 200, overflowY: "scroll" }}
               >
                 {allProjects.map((p) => (
                   <label key={p} className="flex items-center gap-1.5 cursor-pointer">

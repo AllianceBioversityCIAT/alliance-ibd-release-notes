@@ -14,7 +14,7 @@ import {
 } from "@xyflow/react";
 import "@xyflow/react/dist/style.css";
 
-import type { LocalMediaItem, JiraChild, NotionPublishPayload } from "@/app/lib/types";
+import type { LocalMediaItem, UploadedMediaItem, JiraChild, NotionPublishPayload } from "@/app/lib/types";
 import { fetchJiraContext, fetchCommits, streamReleaseNote, uploadFilesSequentially, publishToNotion } from "@/app/lib/api";
 import { saveNote } from "@/app/lib/history";
 import { flowNodeTypes } from "./flow-nodes";
@@ -246,7 +246,7 @@ export function FlowView({ onFullscreenMarkdown, onStreamingChange, onSwitchView
             { id: cRes, type: "result", position: { x: p.x + BELOW.dx, y: p.y + BELOW.dy }, style: { width: 700 },
               data: { markdown: data.release_notes_input, title: `Commits: ${repo}/${branch}`, color: "#24292e", icon: "github", onFullscreen: () => onFullscreenMarkdown(data.release_notes_input) } } as Node,
             { id: genIn, type: "generateInput", position: { x: p.x + RIGHT.dx, y: p.y + RIGHT.dy },
-              data: { onSubmit: (m: LocalMediaItem[]) => handleGenerate(m), disabled: false } } as Node,
+              data: { onSubmit: (m: LocalMediaItem[], e: UploadedMediaItem[]) => handleGenerate(m, e), disabled: false } } as Node,
           ];
         });
         setEdges((eds) => [
@@ -261,25 +261,56 @@ export function FlowView({ onFullscreenMarkdown, onStreamingChange, onSwitchView
       }
     };
 
-    const handleGenerate = async (localMedia: LocalMediaItem[]) => {
+    const handleGenerateRegenerate = () => {
+      const genIn = nid(prefix, "generate-input");
+      const genRes = nid(prefix, "generate-result");
+      const notionIn = nid(prefix, "notion-input");
+
+      // Re-enable generate-input, remove result + notion nodes
+      setNodes((nds) => {
+        const genNode = nds.find((n) => n.id === genIn);
+        const currentUploaded = (genNode?.data as Record<string, unknown>)?.uploadedMedia as UploadedMediaItem[] ?? [];
+        return nds
+          .filter((n) => n.id !== genRes && n.id !== notionIn)
+          .map((n) => n.id === genIn
+            ? { ...n, data: { ...n.data, disabled: false, uploadedMedia: currentUploaded, onSubmit: (m: LocalMediaItem[], e: UploadedMediaItem[]) => handleGenerate(m, e), onRegenerate: handleGenerateRegenerate } }
+            : n);
+      });
+      setEdges((eds) => eds.filter((e) => !e.id.includes(genRes) && !e.id.includes(notionIn)));
+    };
+
+    const handleGenerate = async (newLocalMedia: LocalMediaItem[], existingMedia: UploadedMediaItem[]) => {
       const genIn = nid(prefix, "generate-input");
       const genLoad = nid(prefix, "generate-loading");
       const genRes = nid(prefix, "generate-result");
+      const notionIn = nid(prefix, "notion-input");
 
+      // Remove old result/notion if re-generating
       setNodes((nds) => {
         const p = findPos(nds, genIn);
         return [
-          ...nds.map((n) => n.id === genIn ? { ...n, data: { ...n.data, disabled: true } } : n),
+          ...nds
+            .filter((n) => n.id !== genRes && n.id !== notionIn)
+            .map((n) => n.id === genIn ? { ...n, data: { ...n.data, disabled: true } } : n),
           { id: genLoad, type: "loading", position: { x: p.x + BELOW.dx, y: p.y + BELOW.dy },
             data: { label: "Uploading files & generating...", color: "#7c3aed" } } as Node,
         ];
       });
-      setEdges((eds) => [...eds, mkEdge(genIn, "bottom", genLoad, "top")]);
+      setEdges((eds) => [...eds.filter((e) => !e.id.includes(genRes) && !e.id.includes(notionIn)), mkEdge(genIn, "bottom", genLoad, "top")]);
 
       try {
-        const files = localMedia.map((m) => m.file);
-        const urls = files.length > 0 ? await uploadFilesSequentially(files) : [];
-        const media = urls.map((url, i) => ({ url, ai_context: localMedia[i]?.ai_context || "" }));
+        // Upload only new files, keep existing URLs
+        const newFiles = newLocalMedia.map((m) => m.file);
+        const newUrls = newFiles.length > 0 ? await uploadFilesSequentially(newFiles) : [];
+        const newUploaded: UploadedMediaItem[] = newUrls.map((url, i) => ({
+          url,
+          ai_context: newLocalMedia[i]?.ai_context || "",
+          fileName: newLocalMedia[i]?.file.name || "file",
+        }));
+
+        // Combine existing + newly uploaded
+        const allUploaded = [...existingMedia, ...newUploaded];
+        const media = allUploaded.map((m) => ({ url: m.url, ai_context: m.ai_context }));
 
         const s = st();
         let accumulated = "";
@@ -317,12 +348,16 @@ export function FlowView({ onFullscreenMarkdown, onStreamingChange, onSwitchView
         saveNote({ jiraKey: s.jiraKey, title: firstHeading, markdown: accumulated });
         onStreamingChange?.(false);
         const finalMd = accumulated;
-        const notionIn = nid(prefix, "notion-input");
+
         setNodes((nds) => {
           const genResNode = nds.find((n) => n.id === genRes);
           const gp = genResNode?.position ?? { x: 0, y: 0 };
           return [
-            ...nds.map((n) => n.id === genRes ? { ...n, data: { ...n.data, streaming: false } } : n),
+            ...nds.map((n) => {
+              if (n.id === genRes) return { ...n, data: { ...n.data, streaming: false } };
+              if (n.id === genIn) return { ...n, data: { ...n.data, disabled: true, uploadedMedia: allUploaded, onRegenerate: handleGenerateRegenerate } };
+              return n;
+            }),
             {
               id: notionIn, type: "notionInput",
               position: { x: gp.x + 780, y: gp.y },
@@ -347,13 +382,13 @@ export function FlowView({ onFullscreenMarkdown, onStreamingChange, onSwitchView
       } catch (err) {
         onStreamingChange?.(false);
         setNodes((nds) => nds.filter((n) => n.id !== genLoad && n.id !== genRes)
-          .map((n) => n.id === genIn ? { ...n, data: { ...n.data, disabled: false, onSubmit: (m: LocalMediaItem[]) => handleGenerate(m) } } : n));
+          .map((n) => n.id === genIn ? { ...n, data: { ...n.data, disabled: false, onSubmit: (m: LocalMediaItem[], e: UploadedMediaItem[]) => handleGenerate(m, e) } } : n));
         setEdges((eds) => eds.filter((e) => !e.id.includes(genLoad) && !e.id.includes(genRes)));
         alert(`Generate error: ${err instanceof Error ? err.message : "Unknown error"}`);
       }
     };
 
-    return { handleJira, handleJiraReset, handleGitHub, handleGenerate };
+    return { handleJira, handleJiraReset, handleGitHub, handleGenerate, handleGenerateRegenerate };
   }
 
   /* ── Save canvas on every change ── */
@@ -412,12 +447,15 @@ export function FlowView({ onFullscreenMarkdown, onStreamingChange, onSwitchView
   /* ── Rehydrate node: re-attach callbacks ── */
   function rehydrateNode(n: PersistedCanvas["nodes"][number]): Node {
     const prefix = n.id.split("-")[0];
-    const { handleJira, handleJiraReset, handleGitHub, handleGenerate } = makeHandlers(prefix);
+    const { handleJira, handleJiraReset, handleGitHub, handleGenerate, handleGenerateRegenerate } = makeHandlers(prefix);
     const data = { ...n.data };
 
     if (n.type === "jiraInput") { data.onSubmit = handleJira; data.onReset = handleJiraReset; }
     else if (n.type === "githubInput") data.onSubmit = (o: string, r: string, b: string) => handleGitHub(o, r, b);
-    else if (n.type === "generateInput") data.onSubmit = (m: LocalMediaItem[]) => handleGenerate(m);
+    else if (n.type === "generateInput") {
+      data.onSubmit = (m: LocalMediaItem[], e: UploadedMediaItem[]) => handleGenerate(m, e);
+      data.onRegenerate = handleGenerateRegenerate;
+    }
     else if (n.type === "result" && typeof data.markdown === "string") data.onFullscreen = () => onFullscreenMarkdown(data.markdown as string);
     else if (n.type === "notionInput" && typeof data._markdown === "string") {
       const title = (data._title as string) || "";

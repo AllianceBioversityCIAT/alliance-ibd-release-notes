@@ -42,6 +42,13 @@ export interface LocalMediaItem {
   type: "image" | "video" | "file";
 }
 
+/** Already-uploaded media item: persisted S3 URL for re-generation */
+export interface UploadedMediaItem {
+  url: string;
+  ai_context: string;
+  fileName: string;
+}
+
 export interface NotionPublishPayload {
   tag: string;
   projects: string[];
