@@ -1,59 +1,22 @@
 // Shared Jira helpers used by /jira and /generate routes
+// Transform logic lives in app/lib/jira-transform.ts (shared with client)
+
+import {
+  transformRawToContext,
+  parseWikiMarkup,
+  type RawIssueNode,
+  type RawComment,
+  type RawAttachment,
+  type JiraChild,
+} from "@/app/lib/jira-transform";
+
+export type { RawIssueNode, JiraChild };
 
 const MAX_ISSUES = 20;
 const MAX_DEPTH = 3;
 const MAX_COMMENTS = 5;
 
 type JiraField = Record<string, unknown>;
-
-/* ─────────────────────────────────────────────
-   Jira Wiki Markup → readable plain text
-   ───────────────────────────────────────────── */
-function parseWikiMarkup(text: string): string {
-  if (!text) return "";
-  return (
-    text
-      // Code blocks (preserve content, strip macro tags)
-      .replace(/\{code(?::[^}]*)?\}([\s\S]*?)\{code\}/gi, "\n```\n$1\n```\n")
-      // Quote blocks → block-quote lines
-      .replace(/\{quote\}([\s\S]*?)\{quote\}/gi, (_, c: string) =>
-        c
-          .trim()
-          .split("\n")
-          .map((l) => `> ${l}`)
-          .join("\n")
-      )
-      // Panel macros → just content
-      .replace(/\{panel(?::[^}]*)?\}([\s\S]*?)\{panel\}/gi, "\n$1\n")
-      // Headings at line start → strip marker, keep text
-      .replace(/^h[1-6]\.\s+/gm, "")
-      // Nested bullets ** → indented
-      .replace(/^\*{2,}\s*/gm, "  - ")
-      // Top-level bullets * at line start
-      .replace(/^\*\s+/gm, "- ")
-      // Nested ordered-unordered: #**, #*, ## (must come before plain #)
-      .replace(/^#[*#]+\s*/gm, "  - ")
-      // Ordered list # at line start
-      .replace(/^#\s+/gm, "1. ")
-      // Underline +text+
-      .replace(/\+([^+\n]+)\+/g, "$1")
-      // Inline code {{...}}
-      .replace(/\{\{([^}]+)\}\}/g, "`$1`")
-      // Bold *text* — list items already replaced above so remaining * are bold
-      .replace(/\*([^*\n]+)\*/g, "**$1**")
-      // Smart-links / embeds [label|url|smart-link] → label only
-      .replace(/\[([^\]|]+)\|[^\]|]+\|[^\]]+\]/g, "$1")
-      // Regular links [label|url] → label
-      .replace(/\[([^\]|]+)\|[^\]]+\]/g, "$1")
-      // Bare link or anchor [url] → strip
-      .replace(/\[[^\]]+\]/g, "")
-      // Remaining macro tags {tag} → strip
-      .replace(/\{[a-zA-Z][^}]*\}/g, "")
-      // Collapse excessive blank lines
-      .replace(/\n{3,}/g, "\n\n")
-      .trim()
-  );
-}
 
 /* ─────────────────────────────────────────────
    Auth helper
@@ -64,9 +27,10 @@ function makeAuth(): string {
   ).toString("base64");
 }
 
-/* ─────────────────────────────────────────────
-   Fetch a single Jira issue (raw)
-   ───────────────────────────────────────────── */
+/* ═════════════════════════════════════════════
+   RAW FETCH (no transformation)
+   ═════════════════════════════════════════════ */
+
 export async function fetchJiraIssue(
   issueKey: string
 ): Promise<Record<string, unknown>> {
@@ -83,10 +47,7 @@ export async function fetchJiraIssue(
   return res.json();
 }
 
-/* ─────────────────────────────────────────────
-   Fetch comments for an issue
-   ───────────────────────────────────────────── */
-async function fetchComments(issueKey: string): Promise<string[]> {
+async function fetchRawComments(issueKey: string): Promise<RawComment[]> {
   try {
     const res = await fetch(
       `${process.env.JIRA_BASE_URL}/rest/api/2/issue/${issueKey}/comment?maxResults=50`,
@@ -104,84 +65,52 @@ async function fetchComments(issueKey: string): Promise<string[]> {
     return (data.comments ?? [])
       .filter((c) => c.body?.trim())
       .slice(-MAX_COMMENTS)
-      .map((c) => {
-        const author = c.author?.displayName ?? "Unknown";
-        return `[${author}]: ${parseWikiMarkup(c.body)}`;
-      });
+      .map((c) => ({
+        body: c.body,
+        author: c.author?.displayName ?? "Unknown",
+      }));
   } catch {
     return [];
   }
 }
 
-/* ─────────────────────────────────────────────
-   Recursive issue tree
-   ───────────────────────────────────────────── */
-interface IssueNode {
-  key: string;
-  summary: string;
-  type: string;
-  status: string;
-  assignee: string;
-  reporter: string;
-  description: string;
-  comments: string[];
-  children: IssueNode[];
-}
-
-export interface JiraChild {
-  key: string;
-  summary: string;
-  type: string;
-  status: string;
-  description: string;
-  children: JiraChild[];
-}
-
-function nodeToChild(node: IssueNode): JiraChild {
-  return {
-    key: node.key,
-    summary: node.summary,
-    type: node.type,
-    status: node.status,
-    description: node.description,
-    children: node.children.map(nodeToChild),
-  };
-}
-
-async function collectTree(
+async function collectRawTree(
   key: string,
   visited: Set<string>,
   depth: number
-): Promise<IssueNode | null> {
-  // ── Safeguards ──────────────────────────────
+): Promise<RawIssueNode | null> {
   if (visited.has(key)) return null;
   if (visited.size >= MAX_ISSUES) return null;
   if (depth > MAX_DEPTH) return null;
 
   visited.add(key);
 
-  // Fetch issue + comments in parallel
   let issue: Record<string, unknown>;
-  let comments: string[];
+  let comments: RawComment[];
   try {
     [issue, comments] = await Promise.all([
       fetchJiraIssue(key),
-      fetchComments(key),
+      fetchRawComments(key),
     ]);
   } catch {
-    visited.delete(key); // allow retry if caller wants
+    visited.delete(key);
     return null;
   }
 
   const f = issue.fields as JiraField;
   const issueType = (f.issuetype as JiraField)?.name as string ?? "Unknown";
 
-  // ── Collect subtask keys from the `subtasks` field ──
+  const rawAttachments: RawAttachment[] = ((f.attachment as JiraField[]) ?? []).map((a) => ({
+    filename: a.filename as string,
+    content: a.content as string,
+    mimeType: a.mimeType as string ?? "",
+    thumbnail: a.thumbnail as string | undefined,
+  }));
+
   const subtaskKeys: string[] = (f.subtasks as JiraField[])
     ?.map((s) => s.key as string)
     .filter(Boolean) ?? [];
 
-  // ── For Epics: also query child stories via JQL ──
   if (issueType === "Epic" && visited.size < MAX_ISSUES) {
     try {
       const jql = encodeURIComponent(`parent = ${key}`);
@@ -209,11 +138,10 @@ async function collectTree(
     }
   }
 
-  // ── Recurse into children sequentially ──────
-  const children: IssueNode[] = [];
+  const children: RawIssueNode[] = [];
   for (const childKey of subtaskKeys) {
     if (visited.size >= MAX_ISSUES) break;
-    const child = await collectTree(childKey, visited, depth + 1);
+    const child = await collectRawTree(childKey, visited, depth + 1);
     if (child) children.push(child);
   }
 
@@ -228,78 +156,39 @@ async function collectTree(
       ((f.reporter as JiraField)?.displayName as string) ??
       ((f.creator as JiraField)?.displayName as string) ??
       "Unknown",
-    description: parseWikiMarkup((f.description as string) ?? ""),
+    description: (f.description as string) ?? "",
+    attachments: rawAttachments,
     comments,
     children,
   };
 }
 
-/* ─────────────────────────────────────────────
-   Render tree to text
-   ───────────────────────────────────────────── */
-function renderNode(node: IssueNode, depth: number): string {
-  const pad = "  ".repeat(depth);
-  const header =
-    depth === 0
-      ? `**${node.summary}** (${node.type} | ${node.status})`
-      : `${pad}[${node.key}] ${node.summary} (${node.type} | ${node.status}) — Assignee: ${node.assignee} | Reporter: ${node.reporter}`;
+/* ═════════════════════════════════════════════
+   PUBLIC API — fetch raw + transform via shared module
+   ═════════════════════════════════════════════ */
 
-  const parts: string[] = [header];
-
-  if (node.description) {
-    const descLines = node.description.split("\n").map((l) => `${pad}${l}`);
-    // blank line before description for readability
-    parts.push("", ...descLines);
-  }
-
-  if (node.comments.length > 0) {
-    parts.push(`\n${pad}Comments:`);
-    node.comments.forEach((c) => parts.push(`${pad}  - ${c}`));
-  }
-
-  if (node.children.length > 0) {
-    parts.push(`\n${pad}Sub-items (${node.children.length}):`);
-    node.children.forEach((child) =>
-      parts.push(renderNode(child, depth + 1))
-    );
-  }
-
-  return parts.join("\n");
-}
-
-/* ─────────────────────────────────────────────
-   Public: build full context (used by /jira and /generate)
-   ───────────────────────────────────────────── */
 export async function buildJiraContext(rootKey: string): Promise<{
   jira_context: string;
   reporter: string;
   children: JiraChild[];
+  raw: RawIssueNode;
 }> {
   const visited = new Set<string>();
-  const root = await collectTree(rootKey, visited, 0);
+  const raw = await collectRawTree(rootKey, visited, 0);
 
-  if (!root) throw new Error(`Failed to fetch Jira issue ${rootKey}`);
+  if (!raw) throw new Error(`Failed to fetch Jira issue ${rootKey}`);
 
-  const baseUrl = process.env.JIRA_BASE_URL;
+  const baseUrl = process.env.JIRA_BASE_URL!;
+  const { jira_context, reporter, children } = transformRawToContext(raw, baseUrl);
 
-  let text =
-    `## Jira Context\n` +
-    `Ticket: ${root.key} — ${root.summary}\n` +
-    `URL: ${baseUrl}/browse/${root.key}\n` +
-    `Type: ${root.type} | Status: ${root.status}\n` +
-    `Assignee: ${root.assignee} | Reporter: ${root.reporter}\n\n` +
-    renderNode(root, 0);
-
+  let text = jira_context;
   if (visited.size >= MAX_ISSUES) {
     text += `\n\n[Note: context limited to ${MAX_ISSUES} issues to prevent loops]`;
   }
 
-  return { jira_context: text, reporter: root.reporter, children: root.children.map(nodeToChild) };
+  return { jira_context: text, reporter, children, raw };
 }
 
-/* ─────────────────────────────────────────────
-   Public: build context for multiple keys in parallel
-   ───────────────────────────────────────────── */
 export async function buildJiraContextMulti(keys: string[]): Promise<{
   jira_context: string;
   reporters: string[];
@@ -326,9 +215,7 @@ export async function buildJiraContextMulti(keys: string[]): Promise<{
   };
 }
 
-/* ─────────────────────────────────────────────
-   Legacy: kept for any direct callers
-   ───────────────────────────────────────────── */
+/* ── Legacy: kept for any direct callers ── */
 export function formatJiraIssue(
   issue: Record<string, unknown>
 ): { jira_context: string } {

@@ -1,15 +1,10 @@
-export interface JiraChild {
-  key: string;
-  summary: string;
-  type: string;
-  status: string;
-  description: string;
-  children: JiraChild[];
-}
+export type { JiraChild, RawIssueNode } from "./jira-transform";
 
 export interface JiraResponse {
   jira_context: string;
-  children?: JiraChild[];
+  children?: import("./jira-transform").JiraChild[];
+  raw?: import("./jira-transform").RawIssueNode;
+  jira_base_url?: string;
 }
 
 export interface CommitsResponse {

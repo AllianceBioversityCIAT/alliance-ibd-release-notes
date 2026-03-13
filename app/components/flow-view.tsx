@@ -16,6 +16,7 @@ import "@xyflow/react/dist/style.css";
 
 import type { LocalMediaItem, UploadedMediaItem, JiraChild, NotionPublishPayload } from "@/app/lib/types";
 import { fetchJiraContext, fetchCommits, streamReleaseNote, uploadFilesSequentially, publishToNotion } from "@/app/lib/api";
+import { transformRawToContext, transformRawChild, type RawIssueNode } from "@/app/lib/jira-transform";
 import { saveNote } from "@/app/lib/history";
 import { flowNodeTypes } from "./flow-nodes";
 import { TrashIcon, PlusIcon } from "./icons";
@@ -37,6 +38,7 @@ function buildChildSubtree(
   counter: { val: number },
   depth: number,
   onFullscreen: (md: string) => void,
+  rawChildren?: RawIssueNode[],
 ): { nodes: Node[]; edges: Edge[] } {
   const nodes: Node[] = [];
   const edges: Edge[] = [];
@@ -48,18 +50,20 @@ function buildChildSubtree(
     const x = parentX + j * hSpacing;
     const y = parentY + BELOW.dy;
     const md = `**[${child.key}] ${child.summary}**\n\n_${child.type} · ${child.status}_${child.description ? `\n\n${child.description}` : ""}`;
+    const rawChild = rawChildren?.[j];
 
     nodes.push({
       id: nodeId, type: "result",
       position: { x, y },
       style: { width: nodeW },
       data: { markdown: md, title: child.key, color: "#0052CC", icon: "jira",
+        _rawChild: rawChild,
         onFullscreen: () => onFullscreen(md) },
     } as Node);
     edges.push(mkEdge(parentNodeId, "bottom", nodeId, "top"));
 
     if (child.children?.length) {
-      const sub = buildChildSubtree(prefix, nodeId, child.children, x, y, counter, depth + 1, onFullscreen);
+      const sub = buildChildSubtree(prefix, nodeId, child.children, x, y, counter, depth + 1, onFullscreen, rawChild?.children);
       nodes.push(...sub.nodes);
       edges.push(...sub.edges);
     }
@@ -155,14 +159,18 @@ export function FlowView({ onFullscreenMarkdown, onStreamingChange, onSwitchView
         setNodes((nds) => {
           const p = findPos(nds, jIn);
           const resultNodes: Node[] = issueKeys.map((key, i) => {
-            const ctx = ctxResults[i].status === "fulfilled"
-              ? ctxResults[i].value.jira_context
+            const res = ctxResults[i];
+            const ctx = res.status === "fulfilled"
+              ? res.value.jira_context
               : `_Failed to fetch ${key}_`;
+            const raw = res.status === "fulfilled" ? res.value.raw : undefined;
+            const jiraBaseUrl = res.status === "fulfilled" ? res.value.jira_base_url : undefined;
             return {
               id: nid(prefix, `jira-result-${i}`), type: "result",
               position: { x: p.x + i * RESULT_W, y: p.y + BELOW.dy },
               style: { width: 700 },
               data: { markdown: ctx, title: `Jira: ${key}`, color: "#0052CC", icon: "jira",
+                _raw: raw, _jiraBaseUrl: jiraBaseUrl,
                 onFullscreen: () => onFullscreenMarkdown(ctx) },
             } as Node;
           });
@@ -174,9 +182,10 @@ export function FlowView({ onFullscreenMarkdown, onStreamingChange, onSwitchView
           issueKeys.forEach((_, i) => {
             const res = ctxResults[i];
             if (res.status === "fulfilled" && res.value.children?.length) {
+              const rawChildren = res.value.raw?.children;
               const { nodes: subNodes, edges: subEdges } = buildChildSubtree(
                 prefix, nid(prefix, `jira-result-${i}`), res.value.children,
-                p.x + i * RESULT_W, p.y + BELOW.dy, counter, 0, onFullscreenMarkdown,
+                p.x + i * RESULT_W, p.y + BELOW.dy, counter, 0, onFullscreenMarkdown, rawChildren,
               );
               allChildNodes.push(...subNodes);
               childEdges.push(...subEdges);
@@ -456,7 +465,21 @@ export function FlowView({ onFullscreenMarkdown, onStreamingChange, onSwitchView
       data.onSubmit = (m: LocalMediaItem[], e: UploadedMediaItem[], gc: string) => handleGenerate(m, e, gc);
       data.onRegenerate = handleGenerateRegenerate;
     }
-    else if (n.type === "result" && typeof data.markdown === "string") data.onFullscreen = () => onFullscreenMarkdown(data.markdown as string);
+    else if (n.type === "result") {
+      // Re-transform from raw data if available (so transform logic changes apply on reload)
+      if (data._raw && data._jiraBaseUrl) {
+        const { jira_context } = transformRawToContext(data._raw as RawIssueNode, data._jiraBaseUrl as string);
+        data.markdown = jira_context;
+      }
+      // Also re-transform child sub-nodes
+      if (data._rawChild) {
+        const child = transformRawChild(data._rawChild as RawIssueNode);
+        const md = `**[${child.key}] ${child.summary}**\n\n*${child.type} · ${child.status}*` +
+          (child.description ? `\n\n${child.description}` : "");
+        data.markdown = md;
+      }
+      if (typeof data.markdown === "string") data.onFullscreen = () => onFullscreenMarkdown(data.markdown as string);
+    }
     else if (n.type === "notionInput" && typeof data._markdown === "string") {
       const title = (data._title as string) || "";
       const markdown = data._markdown as string;

@@ -4,7 +4,6 @@ import { buildJiraContext, buildJiraContextMulti } from "../_lib/jira";
 export async function POST(req: NextRequest) {
   try {
     const body = await req.json();
-    // Accept issue_keys (array) or legacy issue_key (string)
     const keys: string[] =
       body.issue_keys ?? (body.issue_key ? [body.issue_key] : []);
 
@@ -12,10 +11,15 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "No issue keys provided" }, { status: 400 });
     }
 
-    // Single key: return children tree for flow view
+    // Single key: return raw tree + transformed context + children
     if (keys.length === 1) {
-      const { jira_context, children } = await buildJiraContext(keys[0]);
-      return NextResponse.json({ jira_context, children });
+      const { jira_context, children, raw } = await buildJiraContext(keys[0]);
+      return NextResponse.json({
+        jira_context,
+        children,
+        raw,
+        jira_base_url: process.env.JIRA_BASE_URL,
+      });
     }
 
     const { jira_context } = await buildJiraContextMulti(keys);
