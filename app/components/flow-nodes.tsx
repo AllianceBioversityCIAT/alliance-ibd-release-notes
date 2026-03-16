@@ -4,7 +4,7 @@ import { memo, useState, useEffect, useRef } from "react";
 import { Handle, Position, type NodeProps } from "@xyflow/react";
 import { DEFAULTS } from "@/app/lib/constants";
 import type { LocalMediaItem, UploadedMediaItem, NotionPublishPayload, NotionPublishResult } from "@/app/lib/types";
-import { LoaderIcon, ImageIcon, ExpandIcon, XIcon, PlusIcon, RefreshIcon, CheckIcon } from "./icons";
+import { LoaderIcon, ImageIcon, ExpandIcon, XIcon, PlusIcon, RefreshIcon, CheckIcon, ClipboardIcon } from "./icons";
 import { MarkdownRenderer } from "./markdown-renderer";
 import { CopyButton } from "./copy-button";
 import { JiraIcon, GitHubIcon, AIIcon, NotionIcon } from "./brand-icons";
@@ -385,10 +385,19 @@ export const NotionInputNode = memo(function NotionInputNode({ data }: NodeProps
       </div>
       <div className="nowheel p-4 space-y-3 border-t border-white/5">
         {publishedUrl ? (
-          <a href={publishedUrl} target="_blank" rel="noopener noreferrer"
-            className="flex items-center gap-2 text-sm font-medium text-emerald-400 hover:underline">
-            <CheckIcon className="w-4 h-4" /> View in Notion ↗
-          </a>
+          <div className="flex items-center gap-3">
+            <a href={publishedUrl} target="_blank" rel="noopener noreferrer"
+              className="flex items-center gap-2 text-sm font-medium text-emerald-400 hover:underline">
+              <CheckIcon className="w-4 h-4" /> View in Notion ↗
+            </a>
+            <button
+              onClick={() => { navigator.clipboard.writeText(publishedUrl); }}
+              className="flex items-center gap-1.5 text-sm font-medium text-white/60 hover:text-white transition-colors"
+              title="Copy URL"
+            >
+              <ClipboardIcon className="w-4 h-4" /> Copy
+            </button>
+          </div>
         ) : (
           <>
             {/* Tag */}
