@@ -85,18 +85,27 @@ export async function POST(req: NextRequest) {
 
     const { release_notes_input } = filterAndFormatCommits(commits, jira_ticket);
 
-    const mediaSection =
-      media?.length > 0
-        ? JSON.stringify(media)
-        : "No media provided";
+    let mediaSection = "No media provided.";
+    if (media?.length > 0) {
+      const lines = (media as Array<{ url: string; ai_context: string }>).map(
+        (m, i) => {
+          const ctx = m.ai_context?.trim();
+          return ctx
+            ? `Image ${i + 1}: ${m.url}\n  Context: ${ctx}`
+            : `Image ${i + 1}: ${m.url}\n  Context: (none — infer from Jira context)`;
+        }
+      );
+      mediaSection = lines.join("\n\n");
+    }
 
     const userPrompt =
-      `Write a release blog post from this data:\n\n` +
-      `${release_notes_input}\n\n` +
+      `Write release notes from this data:\n\n` +
       `${jira_context}\n\n` +
-      `Jira Reporter(s) (people who identified and reported this need): ${reporters.join(", ")}\n\n` +
-      `Media assets:\n${mediaSection}` +
-      (general_context ? `\n\nAdditional context from the user about the media:\n${general_context}` : "");
+      `${release_notes_input}\n\n` +
+      `Jira Reporter(s): ${reporters.join(", ")}\n\n` +
+      `## Media\n${mediaSection}` +
+      (general_context ? `\n\n## General context about the media (provided by the author):\n${general_context}` : "") +
+      `\n\nRemember: Interpret each image through the Jira context above. If an image has specific context from the author, use it. If not, use the Jira tickets to understand what the image shows.`;
 
     const openaiRes = await fetch("https://api.openai.com/v1/chat/completions", {
       method: "POST",
