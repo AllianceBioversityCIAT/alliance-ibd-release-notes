@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
-import { S3Client, PutObjectCommand } from "@aws-sdk/client-s3";
+import { S3Client, PutObjectCommand, GetObjectCommand } from "@aws-sdk/client-s3";
+import { getSignedUrl } from "@aws-sdk/s3-request-presigner";
 import crypto from "crypto";
 
 const s3 = new S3Client({
@@ -26,7 +27,6 @@ export async function POST(req: NextRequest) {
     const fileName = `${date}_${uuid}_${safeName}`;
 
     const bucket = process.env.AWS_S3_BUCKET ?? "release-note-files";
-    const region = process.env.AWS_REGION ?? "us-east-1";
 
     const buffer = Buffer.from(await file.arrayBuffer());
 
@@ -36,12 +36,15 @@ export async function POST(req: NextRequest) {
         Key: fileName,
         Body: buffer,
         ContentType: file.type || "application/octet-stream",
-        ACL: "public-read",
       })
     );
 
-    // Return permanent public URL (no presigned expiry)
-    const Location = `https://${bucket}.s3.${region}.amazonaws.com/${encodeURIComponent(fileName)}`;
+    // Presigned URL valid for 7 days
+    const Location = await getSignedUrl(
+      s3,
+      new GetObjectCommand({ Bucket: bucket, Key: fileName }),
+      { expiresIn: 7 * 24 * 60 * 60 }
+    );
 
     return NextResponse.json({ Location });
   } catch (e) {
