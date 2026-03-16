@@ -14,6 +14,7 @@ import { HistoryIcon, CheckIcon, XIcon, SparklesIcon, EditIcon } from "./icons";
 import { MarkdownRenderer } from "./markdown-renderer";
 import { MarkdownEditorView } from "./markdown-editor";
 import { CopyButton } from "./copy-button";
+import { PdfButton } from "./pdf-button";
 import { JiraIcon, GitHubIcon, AIIcon, GridIcon, FocusIcon, FlowIcon } from "./brand-icons";
 import { PanoramicView } from "./panoramic-view";
 import { WorkspaceView } from "./workspace-view";
@@ -585,6 +586,7 @@ export function ImmersiveWizard() {
                     </button>
                   )}
                   <CopyButton text={generateResult} />
+                  <PdfButton markdown={generateResult} title="Release Note" />
                   <button
                     onClick={() => setMarkdownFullscreen(false)}
                     className="flex items-center gap-1.5 rounded-lg bg-gray-100 px-3 py-2 text-xs font-medium text-gray-600 hover:bg-gray-200 transition-colors"
