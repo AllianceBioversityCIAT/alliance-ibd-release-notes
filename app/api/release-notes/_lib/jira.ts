@@ -111,21 +111,22 @@ async function collectRawTree(
     ?.map((s) => s.key as string)
     .filter(Boolean) ?? [];
 
-  // Also extract children from issuelinks (e.g. "is parent of", "contains")
+  // Extract children from issuelinks:
+  // - "is parent of" / "contains" / "has child" → outwardIssue is child
+  // - "is implemented by" (Polaris Ideas) → inwardIssue is the implementing epic/story
   const issueLinks = (f.issuelinks as JiraField[]) ?? [];
+  const childLinkRe = /parent|contains|child|split|implement/;
   for (const link of issueLinks) {
     const linkType = link.type as JiraField | undefined;
     const outward = (linkType?.outward as string ?? "").toLowerCase();
-    // Parent→child link types: "is parent of", "contains", "has child", etc.
-    if (/parent|contains|child|split/.test(outward) && link.outwardIssue) {
+    if (childLinkRe.test(outward) && link.outwardIssue) {
       const childKey = (link.outwardIssue as JiraField).key as string;
       if (childKey && !subtaskKeys.includes(childKey)) {
         subtaskKeys.push(childKey);
       }
     }
-    // Also check inward for reverse naming (e.g. inward = "is child of")
     const inward = (linkType?.inward as string ?? "").toLowerCase();
-    if (/parent|contains|child|split/.test(inward) && link.inwardIssue) {
+    if (childLinkRe.test(inward) && link.inwardIssue) {
       const childKey = (link.inwardIssue as JiraField).key as string;
       if (childKey && !subtaskKeys.includes(childKey)) {
         subtaskKeys.push(childKey);
