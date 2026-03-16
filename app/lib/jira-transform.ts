@@ -143,26 +143,27 @@ function transformTree(raw: RawIssueNode, _attachments: AttachmentMap): IssueNod
 /* ── Render tree → text ── */
 
 function renderNode(node: IssueNode, depth: number): string {
-  const pad = "  ".repeat(depth);
+  // Use markdown headings for hierarchy instead of space indentation
+  // (4+ spaces triggers code blocks in markdown)
+  const hLevel = Math.min(depth + 3, 6); // h3 for root children, h4, h5, h6
   const header =
     depth === 0
       ? `**${node.summary}** (${node.type} | ${node.status})`
-      : `${pad}[${node.key}] ${node.summary} (${node.type} | ${node.status}) — Assignee: ${node.assignee} | Reporter: ${node.reporter}`;
+      : `${"#".repeat(hLevel)} [${node.key}] ${node.summary} (${node.type} | ${node.status})\n\n_Assignee: ${node.assignee} | Reporter: ${node.reporter}_`;
 
   const parts: string[] = [header];
 
   if (node.description) {
-    const descLines = node.description.split("\n").map((l) => `${pad}${l}`);
-    parts.push("", ...descLines);
+    parts.push("", node.description);
   }
 
   if (node.comments.length > 0) {
-    parts.push(`\n${pad}Comments:`);
-    node.comments.forEach((c) => parts.push(`${pad}  - ${c}`));
+    parts.push("\n**Comments:**");
+    node.comments.forEach((c) => parts.push(`- ${c}`));
   }
 
   if (node.children.length > 0) {
-    parts.push(`\n${pad}Sub-items (${node.children.length}):`);
+    parts.push(`\n**Sub-items (${node.children.length}):**`);
     node.children.forEach((child) =>
       parts.push(renderNode(child, depth + 1))
     );
