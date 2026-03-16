@@ -39,6 +39,7 @@ function buildChildSubtree(
   depth: number,
   onFullscreen: (md: string) => void,
   rawChildren?: RawIssueNode[],
+  jiraBaseUrl?: string,
 ): { nodes: Node[]; edges: Edge[] } {
   const nodes: Node[] = [];
   const edges: Edge[] = [];
@@ -49,7 +50,10 @@ function buildChildSubtree(
     const nodeId = nid(prefix, `jira-sub-${counter.val++}`);
     const x = parentX + j * hSpacing;
     const y = parentY + BELOW.dy;
-    const md = `**[${child.key}] ${child.summary}**\n\n_${child.type} · ${child.status}_${child.description ? `\n\n${child.description}` : ""}`;
+    const keyLabel = jiraBaseUrl
+      ? `[${child.key}](${jiraBaseUrl}/browse/${child.key})`
+      : child.key;
+    const md = `**${keyLabel} ${child.summary}**\n\n_${child.type} · ${child.status}_${child.description ? `\n\n${child.description}` : ""}`;
     const rawChild = rawChildren?.[j];
 
     nodes.push({
@@ -57,13 +61,13 @@ function buildChildSubtree(
       position: { x, y },
       style: { width: nodeW },
       data: { markdown: md, title: child.key, color: "#0052CC", icon: "jira",
-        _rawChild: rawChild,
+        _rawChild: rawChild, _jiraBaseUrl: jiraBaseUrl,
         onFullscreen: () => onFullscreen(md) },
     } as Node);
     edges.push(mkEdge(parentNodeId, "bottom", nodeId, "top"));
 
     if (child.children?.length) {
-      const sub = buildChildSubtree(prefix, nodeId, child.children, x, y, counter, depth + 1, onFullscreen, rawChild?.children);
+      const sub = buildChildSubtree(prefix, nodeId, child.children, x, y, counter, depth + 1, onFullscreen, rawChild?.children, jiraBaseUrl);
       nodes.push(...sub.nodes);
       edges.push(...sub.edges);
     }
@@ -183,9 +187,10 @@ export function FlowView({ onFullscreenMarkdown, onStreamingChange, onSwitchView
             const res = ctxResults[i];
             if (res.status === "fulfilled" && res.value.children?.length) {
               const rawChildren = res.value.raw?.children;
+              const baseUrl = res.value.jira_base_url;
               const { nodes: subNodes, edges: subEdges } = buildChildSubtree(
                 prefix, nid(prefix, `jira-result-${i}`), res.value.children,
-                p.x + i * RESULT_W, p.y + BELOW.dy, counter, 0, onFullscreenMarkdown, rawChildren,
+                p.x + i * RESULT_W, p.y + BELOW.dy, counter, 0, onFullscreenMarkdown, rawChildren, baseUrl,
               );
               allChildNodes.push(...subNodes);
               childEdges.push(...subEdges);
@@ -474,7 +479,11 @@ export function FlowView({ onFullscreenMarkdown, onStreamingChange, onSwitchView
       // Also re-transform child sub-nodes
       if (data._rawChild) {
         const child = transformRawChild(data._rawChild as RawIssueNode);
-        const md = `**[${child.key}] ${child.summary}**\n\n*${child.type} · ${child.status}*` +
+        const baseUrl = data._jiraBaseUrl as string | undefined;
+        const keyLabel = baseUrl
+          ? `[${child.key}](${baseUrl}/browse/${child.key})`
+          : child.key;
+        const md = `**${keyLabel} ${child.summary}**\n\n*${child.type} · ${child.status}*` +
           (child.description ? `\n\n${child.description}` : "");
         data.markdown = md;
       }

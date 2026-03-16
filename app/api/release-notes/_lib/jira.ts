@@ -12,8 +12,8 @@ import {
 
 export type { RawIssueNode, JiraChild };
 
-const MAX_ISSUES = 20;
-const MAX_DEPTH = 3;
+const MAX_ISSUES = 50;
+const MAX_DEPTH = 6;
 const MAX_COMMENTS = 5;
 
 type JiraField = Record<string, unknown>;
@@ -111,32 +111,72 @@ async function collectRawTree(
     ?.map((s) => s.key as string)
     .filter(Boolean) ?? [];
 
-  if (issueType === "Epic" && visited.size < MAX_ISSUES) {
-    try {
-      const jql = encodeURIComponent(`parent = ${key}`);
-      const searchRes = await fetch(
-        `${process.env.JIRA_BASE_URL}/rest/api/2/search?jql=${jql}&maxResults=20&fields=summary,issuetype,status`,
-        {
-          headers: {
-            Authorization: `Basic ${makeAuth()}`,
-            Accept: "application/json",
-          },
-        }
-      );
-      if (searchRes.ok) {
-        const data = (await searchRes.json()) as {
-          issues?: Array<{ key: string }>;
-        };
-        for (const child of data.issues ?? []) {
-          if (!subtaskKeys.includes(child.key)) {
-            subtaskKeys.push(child.key);
-          }
-        }
+  // Also extract children from issuelinks (e.g. "is parent of", "contains")
+  const issueLinks = (f.issuelinks as JiraField[]) ?? [];
+  for (const link of issueLinks) {
+    const linkType = link.type as JiraField | undefined;
+    const outward = (linkType?.outward as string ?? "").toLowerCase();
+    // Parent→child link types: "is parent of", "contains", "has child", etc.
+    if (/parent|contains|child|split/.test(outward) && link.outwardIssue) {
+      const childKey = (link.outwardIssue as JiraField).key as string;
+      if (childKey && !subtaskKeys.includes(childKey)) {
+        subtaskKeys.push(childKey);
       }
-    } catch {
-      // best-effort
+    }
+    // Also check inward for reverse naming (e.g. inward = "is child of")
+    const inward = (linkType?.inward as string ?? "").toLowerCase();
+    if (/parent|contains|child|split/.test(inward) && link.inwardIssue) {
+      const childKey = (link.inwardIssue as JiraField).key as string;
+      if (childKey && !subtaskKeys.includes(childKey)) {
+        subtaskKeys.push(childKey);
+      }
     }
   }
+
+  // Search for children via JQL (uses v3 API — v2/search is removed in some Jira Cloud instances)
+  if (visited.size < MAX_ISSUES) {
+    const jqlQueries = [`parent = ${key}`];
+    if (issueType === "Epic") {
+      jqlQueries.push(`"Epic Link" = ${key}`);
+    }
+
+    for (const jql of jqlQueries) {
+      try {
+        // Try v3 first (required by newer Jira Cloud), fall back to v2
+        const urls = [
+          `${process.env.JIRA_BASE_URL}/rest/api/3/search/jql?jql=${encodeURIComponent(jql)}&maxResults=50&fields=summary,issuetype,status`,
+          `${process.env.JIRA_BASE_URL}/rest/api/2/search?jql=${encodeURIComponent(jql)}&maxResults=50&fields=summary,issuetype,status`,
+        ];
+        for (const url of urls) {
+          try {
+            const searchRes = await fetch(url, {
+              headers: {
+                Authorization: `Basic ${makeAuth()}`,
+                Accept: "application/json",
+              },
+            });
+            if (searchRes.ok) {
+              const data = (await searchRes.json()) as {
+                issues?: Array<{ key: string }>;
+              };
+              for (const child of data.issues ?? []) {
+                if (!subtaskKeys.includes(child.key)) {
+                  subtaskKeys.push(child.key);
+                }
+              }
+              break; // v3 worked, skip v2
+            }
+          } catch {
+            // try next URL
+          }
+        }
+      } catch {
+        // best-effort
+      }
+    }
+  }
+
+  console.log(`[jira] ${key} (${issueType}) → ${subtaskKeys.length} children: [${subtaskKeys.join(", ")}]`);
 
   const children: RawIssueNode[] = [];
   for (const childKey of subtaskKeys) {
@@ -183,7 +223,7 @@ export async function buildJiraContext(rootKey: string): Promise<{
 
   let text = jira_context;
   if (visited.size >= MAX_ISSUES) {
-    text += `\n\n[Note: context limited to ${MAX_ISSUES} issues to prevent loops]`;
+    text += `\n\n[⚠ Safeguard: tree truncated at ${MAX_ISSUES} issues (max depth ${MAX_DEPTH}) to prevent runaway recursion]`;
   }
 
   return { jira_context: text, reporter, children, raw };
