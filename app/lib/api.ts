@@ -105,7 +105,6 @@ export function publishToNotion(params: {
   return post<NotionPublishResult>("/api/release-notes/notion", params);
 }
 
-/** Generate a PDF from markdown and trigger browser download. */
 /** Upload a single file to S3 via n8n. Returns the S3 Location URL. */
 export async function uploadFile(file: File): Promise<string> {
   const form = new FormData();

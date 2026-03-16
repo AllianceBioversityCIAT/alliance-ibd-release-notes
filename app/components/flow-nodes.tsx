@@ -7,7 +7,6 @@ import type { LocalMediaItem, UploadedMediaItem, NotionPublishPayload, NotionPub
 import { LoaderIcon, ImageIcon, ExpandIcon, XIcon, PlusIcon, RefreshIcon, CheckIcon, ClipboardIcon } from "./icons";
 import { MarkdownRenderer } from "./markdown-renderer";
 import { CopyButton } from "./copy-button";
-import { PdfButtonCompact } from "./pdf-button";
 import { JiraIcon, GitHubIcon, AIIcon, NotionIcon } from "./brand-icons";
 import { ChatMediaInput } from "./chat-media-input";
 import { getNotionOptions, uploadFile } from "@/app/lib/api";
@@ -292,7 +291,6 @@ export const ResultNode = memo(function ResultNode({ data }: NodeProps) {
           </a>
         )}
         <CopyButton text={markdown} />
-        {icon === "ai" && !streaming && <PdfButtonCompact markdown={markdown} title={title} />}
         <button
           onClick={onFullscreen}
           className="flex items-center gap-1 rounded-md bg-white/10 px-2.5 py-1 text-[11px] font-medium text-white/70 hover:bg-white/20 hover:text-white transition-colors"
