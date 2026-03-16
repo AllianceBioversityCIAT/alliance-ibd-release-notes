@@ -106,28 +106,6 @@ export function publishToNotion(params: {
 }
 
 /** Generate a PDF from markdown and trigger browser download. */
-export async function downloadPDF(markdown: string, title?: string): Promise<void> {
-  const res = await fetch("/api/release-notes/pdf", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ markdown, title }),
-  });
-  if (!res.ok) {
-    let msg = `PDF generation failed (${res.status})`;
-    try { const err = await res.json(); msg = err.error || msg; } catch { /* */ }
-    throw new Error(msg);
-  }
-  const blob = await res.blob();
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement("a");
-  a.href = url;
-  a.download = `${(title || "release-note").replace(/[^a-zA-Z0-9\s-_]/g, "").replace(/\s+/g, "-")}.pdf`;
-  document.body.appendChild(a);
-  a.click();
-  document.body.removeChild(a);
-  URL.revokeObjectURL(url);
-}
-
 /** Upload a single file to S3 via n8n. Returns the S3 Location URL. */
 export async function uploadFile(file: File): Promise<string> {
   const form = new FormData();

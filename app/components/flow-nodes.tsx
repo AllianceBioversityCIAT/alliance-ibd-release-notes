@@ -292,7 +292,7 @@ export const ResultNode = memo(function ResultNode({ data }: NodeProps) {
           </a>
         )}
         <CopyButton text={markdown} />
-        {icon === "ai" && <PdfButtonCompact markdown={markdown} title={title} />}
+        {icon === "ai" && !streaming && <PdfButtonCompact markdown={markdown} title={title} />}
         <button
           onClick={onFullscreen}
           className="flex items-center gap-1 rounded-md bg-white/10 px-2.5 py-1 text-[11px] font-medium text-white/70 hover:bg-white/20 hover:text-white transition-colors"
