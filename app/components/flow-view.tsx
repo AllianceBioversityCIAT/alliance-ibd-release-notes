@@ -43,24 +43,23 @@ function buildChildSubtree(
 ): { nodes: Node[]; edges: Edge[] } {
   const nodes: Node[] = [];
   const edges: Edge[] = [];
-  const nodeW = depth === 0 ? 500 : Math.max(380, 500 - depth * 40);
-  const hSpacing = nodeW + 20;
+  const nodeW = 700;
+  const hSpacing = nodeW + 30;
 
   children.forEach((child, j) => {
     const nodeId = nid(prefix, `jira-sub-${counter.val++}`);
     const x = parentX + j * hSpacing;
     const y = parentY + BELOW.dy;
-    const keyLabel = jiraBaseUrl
-      ? `[${child.key}](${jiraBaseUrl}/browse/${child.key})`
-      : child.key;
-    const md = `**${keyLabel} ${child.summary}**\n\n_${child.type} · ${child.status}_${child.description ? `\n\n${child.description}` : ""}`;
+    const md = `**${child.key} — ${child.summary}**\n\n_${child.type} · ${child.status}_${child.description ? `\n\n${child.description}` : ""}`;
     const rawChild = rawChildren?.[j];
+    const childJiraUrl = jiraBaseUrl ? `${jiraBaseUrl}/browse/${child.key}` : undefined;
 
     nodes.push({
       id: nodeId, type: "result",
       position: { x, y },
       style: { width: nodeW },
       data: { markdown: md, title: child.key, color: "#0052CC", icon: "jira",
+        jiraUrl: childJiraUrl,
         _rawChild: rawChild, _jiraBaseUrl: jiraBaseUrl,
         onFullscreen: () => onFullscreen(md) },
     } as Node);
@@ -174,6 +173,7 @@ export function FlowView({ onFullscreenMarkdown, onStreamingChange, onSwitchView
               position: { x: p.x + i * RESULT_W, y: p.y + BELOW.dy },
               style: { width: 700 },
               data: { markdown: ctx, title: `Jira: ${key}`, color: "#0052CC", icon: "jira",
+                jiraUrl: jiraBaseUrl ? `${jiraBaseUrl}/browse/${key}` : undefined,
                 _raw: raw, _jiraBaseUrl: jiraBaseUrl,
                 onFullscreen: () => onFullscreenMarkdown(ctx) },
             } as Node;
@@ -414,34 +414,43 @@ export function FlowView({ onFullscreenMarkdown, onStreamingChange, onSwitchView
   /* ── Reposition jira-sub-* nodes once measured parent heights are known ── */
   const measuredHeightsRef = useRef<Record<string, number>>({});
   useEffect(() => {
-    // Track whether any relevant parent node changed its measured height
-    let parentChanged = false;
+    // Update tracked heights
+    let anyNewHeight = false;
     for (const n of nodes) {
       if (!/-jira-(result|sub)-/.test(n.id)) continue;
       const h = (n.measured as { height?: number } | undefined)?.height;
       if (h == null) continue;
       if (measuredHeightsRef.current[n.id] !== h) {
         measuredHeightsRef.current[n.id] = h;
-        parentChanged = true;
+        anyNewHeight = true;
       }
     }
-    if (!parentChanged) return;
+    if (!anyNewHeight) return;
 
     setNodes((nds) => {
-      let changed = false;
-      const next = nds.map((n) => {
-        if (!/-jira-sub-/.test(n.id)) return n;
-        const parentEdge = edgesRef.current.find((e) => e.target === n.id);
-        if (!parentEdge) return n;
-        const parent = nds.find((p) => p.id === parentEdge.source);
-        const ph = (parent?.measured as { height?: number } | undefined)?.height;
-        if (!parent || ph == null) return n;
-        const newY = parent.position.y + ph + 50;
-        if (Math.abs(n.position.y - newY) <= 2) return n;
-        changed = true;
-        return { ...n, position: { x: n.position.x, y: newY } };
-      });
-      return changed ? next : nds;
+      // Multi-pass: cascade position updates through the tree (parent → child → grandchild)
+      const updated = [...nds];
+      let anyChanged = false;
+      for (let pass = 0; pass < 10; pass++) {
+        let passChanged = false;
+        for (let i = 0; i < updated.length; i++) {
+          const n = updated[i];
+          if (!/-jira-sub-/.test(n.id)) continue;
+          const parentEdge = edgesRef.current.find((e) => e.target === n.id);
+          if (!parentEdge) continue;
+          const parent = updated.find((p) => p.id === parentEdge.source);
+          if (!parent) continue;
+          const ph = measuredHeightsRef.current[parent.id];
+          if (ph == null) continue;
+          const newY = parent.position.y + ph + 60;
+          if (Math.abs(n.position.y - newY) <= 2) continue;
+          passChanged = true;
+          anyChanged = true;
+          updated[i] = { ...n, position: { x: n.position.x, y: newY } };
+        }
+        if (!passChanged) break;
+      }
+      return anyChanged ? updated : nds;
     });
   }, [nodes]);
 
@@ -471,21 +480,22 @@ export function FlowView({ onFullscreenMarkdown, onStreamingChange, onSwitchView
       data.onRegenerate = handleGenerateRegenerate;
     }
     else if (n.type === "result") {
+      const baseUrl = data._jiraBaseUrl as string | undefined;
       // Re-transform from raw data if available (so transform logic changes apply on reload)
-      if (data._raw && data._jiraBaseUrl) {
-        const { jira_context } = transformRawToContext(data._raw as RawIssueNode, data._jiraBaseUrl as string);
+      if (data._raw && baseUrl) {
+        const { jira_context } = transformRawToContext(data._raw as RawIssueNode, baseUrl);
         data.markdown = jira_context;
+        // Reconstruct jiraUrl for main result nodes
+        const rawKey = (data._raw as RawIssueNode).key;
+        if (rawKey) data.jiraUrl = `${baseUrl}/browse/${rawKey}`;
       }
       // Also re-transform child sub-nodes
       if (data._rawChild) {
         const child = transformRawChild(data._rawChild as RawIssueNode);
-        const baseUrl = data._jiraBaseUrl as string | undefined;
-        const keyLabel = baseUrl
-          ? `[${child.key}](${baseUrl}/browse/${child.key})`
-          : child.key;
-        const md = `**${keyLabel} ${child.summary}**\n\n*${child.type} · ${child.status}*` +
+        const md = `**${child.key} — ${child.summary}**\n\n*${child.type} · ${child.status}*` +
           (child.description ? `\n\n${child.description}` : "");
         data.markdown = md;
+        if (baseUrl) data.jiraUrl = `${baseUrl}/browse/${child.key}`;
       }
       if (typeof data.markdown === "string") data.onFullscreen = () => onFullscreenMarkdown(data.markdown as string);
     }

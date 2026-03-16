@@ -258,13 +258,14 @@ export const LoadingNode = memo(function LoadingNode({ data }: NodeProps) {
    Handles: target-top (↑ from input), source-right (→ to next step)
    ═══════════════════════════════════════════════════ */
 export const ResultNode = memo(function ResultNode({ data }: NodeProps) {
-  const { markdown, title, color, icon, onFullscreen, streaming } = data as {
+  const { markdown, title, color, icon, onFullscreen, streaming, jiraUrl } = data as {
     markdown: string;
     title: string;
     color: string;
     icon: "jira" | "github" | "ai";
     onFullscreen?: () => void;
     streaming?: boolean;
+    jiraUrl?: string;
   };
 
   const IconComponent = icon === "jira" ? JiraIcon : icon === "github" ? GitHubIcon : AIIcon;
@@ -278,6 +279,17 @@ export const ResultNode = memo(function ResultNode({ data }: NodeProps) {
           <IconComponent className="w-3.5 h-3.5" />
         </div>
         <span className="text-xs font-semibold text-white/90 flex-1 truncate">{title}</span>
+        {jiraUrl && (
+          <a
+            href={jiraUrl}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="flex items-center gap-1 rounded-md bg-blue-500/15 px-2.5 py-1 text-[11px] font-medium text-blue-400 hover:bg-blue-500/25 hover:text-blue-300 transition-colors"
+          >
+            <JiraIcon className="w-3 h-3" />
+            Open
+          </a>
+        )}
         <CopyButton text={markdown} />
         <button
           onClick={onFullscreen}
