@@ -29,7 +29,8 @@ type Block = Record<string, unknown>;
 
 function parseInline(text: string): RT[] {
   const tokens: RT[] = [];
-  const re = /(\*\*(.+?)\*\*|\*([^*\n]+)\*|_([^_\n]+)_|`([^`\n]+)`|~~([^~\n]+)~~)/g;
+  // Order matters: bold before italic, links before plain text
+  const re = /(\*\*(.+?)\*\*|\*([^*\n]+)\*|_([^_\n]+)_|`([^`\n]+)`|~~([^~\n]+)~~|\[([^\]]+)\]\(([^)]+)\))/g;
   let last = 0;
   let m: RegExpExecArray | null;
   while ((m = re.exec(text)) !== null) {
@@ -39,6 +40,10 @@ function parseInline(text: string): RT[] {
     else if (m[4]) tokens.push({ type: "text", text: { content: m[4] }, annotations: { italic: true } });
     else if (m[5]) tokens.push({ type: "text", text: { content: m[5] }, annotations: { code: true } });
     else if (m[6]) tokens.push({ type: "text", text: { content: m[6] }, annotations: { strikethrough: true } });
+    else if (m[7] && m[8]) {
+      // Markdown link [text](url)
+      tokens.push({ type: "text", text: { content: m[7], link: { url: m[8] } } } as unknown as RT);
+    }
     last = m.index + m[0].length;
   }
   if (last < text.length) tokens.push({ type: "text", text: { content: text.slice(last) } });
@@ -51,9 +56,22 @@ function blk(type: string, rt: RT[]): Block {
 
 function markdownToBlocks(md: string): Block[] {
   const blocks: Block[] = [];
+  // Match markdown images: ![alt](url)
+  const imgRe = /^!\[([^\]]*)\]\(([^)]+)\)$/;
+
   for (const raw of md.split("\n")) {
     const t = raw.trimEnd();
     if (!t) continue;
+
+    // Image on its own line → Notion image block
+    const imgMatch = t.match(imgRe);
+    if (imgMatch) {
+      blocks.push({
+        type: "image",
+        image: { type: "external", external: { url: imgMatch[2] } },
+      });
+      continue;
+    }
 
     if (t.startsWith("#### ")) blocks.push(blk("heading_3", parseInline(t.slice(5))));
     else if (t.startsWith("### ")) blocks.push(blk("heading_3", parseInline(t.slice(4))));
