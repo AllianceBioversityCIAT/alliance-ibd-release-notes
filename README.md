@@ -1,36 +1,65 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# IBD Release Notes
 
-## Getting Started
+Internal tool for generating release notes from Jira tickets and GitHub commits using AI (OpenAI). Publish directly to Notion with banners, tags, and project metadata.
 
-First, run the development server:
+## How it works
 
-```bash
-npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
+The app presents an interactive graph view (React Flow) where each step in the release note generation process is a connected node:
+
+```
+[Jira Input] → [GitHub Input] → [Generate] → [Notion Publish]
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+1. **Jira Input** — Enter one or more Jira ticket keys. The app fetches the ticket details and recursively discovers subtasks and linked issues.
+2. **GitHub Input** — Specify the repository and branch. The app fetches commits related to the Jira tickets.
+3. **Generate** — Optionally attach screenshots or media files (uploaded to S3). The AI generates a structured release note via streaming (SSE).
+4. **Notion Publish** — Review the generated markdown, pick a tag and projects, optionally add a banner image, then publish directly to a Notion database.
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+Each flow is an independent lane on the canvas. You can have multiple flows running side by side, and the canvas state persists across page reloads via localStorage.
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+## Tech stack
 
-## Learn More
+- **Next.js** (App Router) + TypeScript + Tailwind CSS v4
+- **React Flow** (`@xyflow/react`) — interactive graph canvas
+- **Three.js** (`@react-three/fiber`) — animated particle background
+- **OpenAI** `gpt-4.1-mini` — release note generation with streaming
+- **AWS S3** — media/banner file uploads
+- **Notion API** — page creation with rich properties
+- **Jira REST API** — ticket fetching with recursive subtask discovery
+- **GitHub REST API** — commit history filtered by ticket
 
-To learn more about Next.js, take a look at the following resources:
+## Environment variables
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+Create a `.env.local` file with the following keys:
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+```
+# Jira
+JIRA_BASE_URL=
+JIRA_EMAIL=
+JIRA_API_TOKEN=
 
-## Deploy on Vercel
+# GitHub
+GITHUB_TOKEN=
 
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
+# OpenAI
+OPENAI_API_KEY=
 
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+# AWS S3
+AWS_ACCESS_KEY_ID=
+AWS_SECRET_ACCESS_KEY=
+AWS_REGION=
+AWS_S3_BUCKET=
+
+# Notion
+NOTION_API_KEY=
+NOTION_DATABASE_ID=
+```
+
+## Getting started
+
+```bash
+npm install
+npm run dev
+```
+
+Open [http://localhost:3000](http://localhost:3000) to use the app.
