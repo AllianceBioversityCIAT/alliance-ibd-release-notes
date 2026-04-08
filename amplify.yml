@@ -6,6 +6,7 @@ frontend:
         - npm ci
     build:
       commands:
+        - env | grep -E '^(JIRA_|GITHUB_|OPENAI_|S3_|NOTION_)' > .env.production
         - npm run build
   artifacts:
     baseDirectory: .next
