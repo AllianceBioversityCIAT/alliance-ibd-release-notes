@@ -84,18 +84,64 @@ Every image description MUST be grounded in the Jira context (tickets, subtasks,
 
 export async function POST(req: NextRequest) {
   try {
-    const { owner, repo, branch, jira_ticket, jira_tickets, media, general_context } = await req.json();
+    const { owner, repo, branch, jira_ticket, jira_tickets, jira_context: clientJiraContext, media, general_context, note_type } = await req.json();
     // Accept jira_tickets (array) or legacy jira_ticket (string)
     const jiraKeys: string[] =
       jira_tickets ?? (jira_ticket ? [jira_ticket] : []);
 
-    // Fetch Jira (with recursive subtask tree) and GitHub in parallel
-    const [{ jira_context, reporters }, commits] = await Promise.all([
-      buildJiraContextMulti(jiraKeys),
-      fetchGitHubCommits(owner, repo, branch),
-    ]);
+    // Use pre-fetched jira_context from client if available, otherwise fetch
+    const hasGitHub = owner && repo && branch;
+    let jira_context: string;
+    let reporters: string[] = [];
 
-    const { release_notes_input } = filterAndFormatCommits(commits, jira_ticket);
+    if (clientJiraContext) {
+      jira_context = clientJiraContext;
+      // Extract reporters from the context text (format: "Reporter: Name")
+      const reporterMatches = jira_context.matchAll(/Reporter:\s*([^\n|]+)/g);
+      for (const m of reporterMatches) {
+        const name = m[1].trim();
+        if (name && !reporters.includes(name)) reporters.push(name);
+      }
+    } else {
+      const result = await buildJiraContextMulti(jiraKeys);
+      jira_context = result.jira_context;
+      reporters = result.reporters;
+    }
+
+    let commits: Awaited<ReturnType<typeof fetchGitHubCommits>> = [];
+    if (hasGitHub) {
+      commits = await fetchGitHubCommits(owner, repo, branch);
+    }
+
+    const { release_notes_input } = hasGitHub
+      ? filterAndFormatCommits(commits, jira_ticket)
+      : { release_notes_input: "No GitHub commits provided." };
+
+    // Note type instructions
+    const noteTypeInstructions: Record<string, string> = {
+      detailed: `## RELEASE NOTE TYPE: DETAILED / TUTORIAL
+This is a comprehensive release with lots of context. Write an EXTENSIVE, in-depth release note that:
+- Covers EVERY subtask, story, and change individually with its own section
+- Explains each feature as a mini-tutorial: what it does, how the user interacts with it, what they should expect
+- Uses step-by-step descriptions where applicable (e.g., "First you'll see..., then you can...")
+- Includes specific UI element references (buttons, fields, screens, modals)
+- Provides context about WHY each change matters to the user's workflow
+- Should be AT LEAST 2000+ words for complex features — do NOT summarize or condense
+- Think of this as a product guide, not just a changelog`,
+      brief: `## RELEASE NOTE TYPE: BRIEF / PATCH
+This is a small, focused change. Write a SHORT, concise release note:
+- 2-4 paragraphs maximum
+- Get straight to the point — what changed and why
+- No lengthy explanations or tutorials
+- Perfect for bug fixes, small enhancements, or single-feature patches`,
+      standard: `## RELEASE NOTE TYPE: STANDARD
+Write a balanced release note that covers all changes with appropriate detail:
+- Each major change gets its own section with 2-3 paragraphs
+- Include enough detail to understand the change without being exhaustive
+- Scale the length proportionally to the amount of Jira context provided`,
+    };
+
+    const typeInstruction = noteTypeInstructions[note_type as string] ?? noteTypeInstructions.standard;
 
     let mediaSection = "No media provided.";
     if (media?.length > 0) {
@@ -111,6 +157,7 @@ export async function POST(req: NextRequest) {
     }
 
     const userPrompt =
+      `${typeInstruction}\n\n` +
       `Write release notes from this data:\n\n` +
       `${jira_context}\n\n` +
       `${release_notes_input}\n\n` +

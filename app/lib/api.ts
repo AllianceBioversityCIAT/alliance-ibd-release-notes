@@ -41,10 +41,62 @@ export async function* streamReleaseNote(params: {
   repo: string;
   branch: string;
   jira_tickets: string[];
+  jira_context?: string;
   media: { url: string; ai_context: string }[];
   general_context?: string;
+  note_type?: string;
 }): AsyncGenerator<string, void, unknown> {
   const res = await fetch("/api/release-notes/generate", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(params),
+  });
+
+  if (!res.ok) {
+    const text = await res.text();
+    let msg = `Request failed (${res.status})`;
+    try { msg = JSON.parse(text).error || msg; } catch { /* */ }
+    throw new Error(msg);
+  }
+
+  const reader = res.body!.getReader();
+  const decoder = new TextDecoder();
+  let buffer = "";
+
+  try {
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      buffer += decoder.decode(value, { stream: true });
+      const lines = buffer.split("\n");
+      buffer = lines.pop() ?? "";
+      for (const line of lines) {
+        const trimmed = line.trim();
+        if (!trimmed.startsWith("data:")) continue;
+        const payload = trimmed.slice(5).trim();
+        if (payload === "[DONE]") return;
+        try {
+          const parsed = JSON.parse(payload);
+          if (parsed.error) throw new Error(parsed.error.message ?? "OpenAI stream error");
+          const content: string = parsed.choices?.[0]?.delta?.content ?? "";
+          if (content) yield content;
+        } catch (e) {
+          if (e instanceof Error && e.message.includes("OpenAI")) throw e;
+        }
+      }
+    }
+  } finally {
+    reader.releaseLock();
+  }
+}
+
+export async function* streamRefineNote(params: {
+  markdown: string;
+  instruction: string;
+  media?: { url: string; ai_context: string }[];
+  jira_context?: string;
+}): AsyncGenerator<string, void, unknown> {
+  const res = await fetch("/api/release-notes/refine", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(params),

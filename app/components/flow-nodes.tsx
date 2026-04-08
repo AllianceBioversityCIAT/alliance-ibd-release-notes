@@ -104,10 +104,12 @@ export const JiraInputNode = memo(function JiraInputNode({ data }: NodeProps) {
    Handles: target-left (← Jira), source-right (→ Generate), source-bottom (↓ result)
    ═══════════════════════════════════════════════════ */
 export const GitHubInputNode = memo(function GitHubInputNode({ data }: NodeProps) {
-  const { jiraTicket, onSubmit, disabled } = data as {
+  const { jiraTicket, onSubmit, onSkip, disabled, skipped } = data as {
     jiraTicket: string;
     onSubmit: (owner: string, repo: string, branch: string) => void;
+    onSkip: () => void;
     disabled: boolean;
+    skipped?: boolean;
   };
   const [owner, setOwner] = useState<string>(DEFAULTS.owner);
   const [repo, setRepo] = useState<string>(DEFAULTS.repo);
@@ -122,7 +124,7 @@ export const GitHubInputNode = memo(function GitHubInputNode({ data }: NodeProps
         </div>
         <span className="text-sm font-semibold text-white">GitHub Commits</span>
         {jiraTicket && <span className="text-[10px] font-medium text-blue-400 bg-blue-500/15 rounded-full px-2 py-0.5">{jiraTicket}</span>}
-        {disabled && <span className="ml-auto text-[10px] font-medium text-emerald-400 bg-emerald-500/20 rounded-full px-2 py-0.5">Done</span>}
+        {disabled && <span className={`ml-auto text-[10px] font-medium rounded-full px-2 py-0.5 ${skipped ? "text-yellow-400 bg-yellow-500/20" : "text-emerald-400 bg-emerald-500/20"}`}>{skipped ? "Skipped" : "Done"}</span>}
       </div>
       <div className="p-4 space-y-3 border-t border-white/5">
         <div className="grid grid-cols-3 gap-2">
@@ -143,12 +145,20 @@ export const GitHubInputNode = memo(function GitHubInputNode({ data }: NodeProps
           </div>
         </div>
         {!disabled && (
-          <button
-            onClick={() => onSubmit(owner, repo, branch)}
-            className="w-full rounded-lg bg-gray-700 px-4 py-2 text-sm font-medium text-white hover:bg-gray-600 transition-colors"
-          >
-            Fetch Commits
-          </button>
+          <div className="flex gap-2">
+            <button
+              onClick={() => onSubmit(owner, repo, branch)}
+              className="flex-1 rounded-lg bg-gray-700 px-4 py-2 text-sm font-medium text-white hover:bg-gray-600 transition-colors"
+            >
+              Fetch Commits
+            </button>
+            <button
+              onClick={onSkip}
+              className="flex-1 rounded-lg border border-white/10 bg-white/5 px-4 py-2 text-sm font-medium text-white/60 hover:bg-white/10 hover:text-white transition-colors"
+            >
+              Skip →
+            </button>
+          </div>
         )}
       </div>
       <Handle type="source" position={Position.Right} id="right" style={hRight} />
@@ -163,9 +173,17 @@ export const GitHubInputNode = memo(function GitHubInputNode({ data }: NodeProps
    ChatGPT-style media input with paste, drag-drop, and per-image context.
    Supports re-generation with previously uploaded media.
    ═══════════════════════════════════════════════════ */
+const RELEASE_NOTE_TYPES = [
+  { value: "standard", label: "Standard", desc: "Balanced overview of changes" },
+  { value: "detailed", label: "Detailed / Tutorial", desc: "In-depth walkthrough, step-by-step" },
+  { value: "brief", label: "Brief / Patch", desc: "Short and to the point" },
+] as const;
+
+export type ReleaseNoteType = (typeof RELEASE_NOTE_TYPES)[number]["value"];
+
 export const GenerateInputNode = memo(function GenerateInputNode({ data }: NodeProps) {
   const { onSubmit, onRegenerate, disabled, uploadedMedia: initialUploaded } = data as {
-    onSubmit: (newMedia: LocalMediaItem[], existingMedia: UploadedMediaItem[], generalContext: string) => void;
+    onSubmit: (newMedia: LocalMediaItem[], existingMedia: UploadedMediaItem[], generalContext: string, noteType: ReleaseNoteType) => void;
     onRegenerate?: () => void;
     disabled: boolean;
     uploadedMedia?: UploadedMediaItem[];
@@ -173,6 +191,7 @@ export const GenerateInputNode = memo(function GenerateInputNode({ data }: NodeP
   const [localMedia, setLocalMedia] = useState<LocalMediaItem[]>([]);
   const [uploaded, setUploaded] = useState<UploadedMediaItem[]>(initialUploaded ?? []);
   const [generalContext, setGeneralContext] = useState("");
+  const [noteType, setNoteType] = useState<ReleaseNoteType>("standard");
   const prevDisabledRef = useRef(disabled);
 
   // When transitioning disabled→enabled (re-generate), clear local media and sync uploaded
@@ -209,6 +228,26 @@ export const GenerateInputNode = memo(function GenerateInputNode({ data }: NodeP
       <div className="p-4 space-y-3 border-t border-white/5">
         {!disabled ? (
           <>
+            {/* Release note type selector */}
+            <div>
+              <label className="text-[10px] font-medium text-white/40 mb-1.5 block">Release Note Type</label>
+              <div className="flex gap-1.5">
+                {RELEASE_NOTE_TYPES.map((t) => (
+                  <button
+                    key={t.value}
+                    onClick={() => setNoteType(t.value)}
+                    className={`flex-1 rounded-lg border px-2 py-1.5 text-center transition-all ${
+                      noteType === t.value
+                        ? "border-purple-500/60 bg-purple-500/20 text-purple-300"
+                        : "border-white/10 bg-white/5 text-white/40 hover:border-white/20 hover:text-white/60"
+                    }`}
+                  >
+                    <span className="text-[11px] font-medium block">{t.label}</span>
+                    <span className="text-[9px] opacity-60 block">{t.desc}</span>
+                  </button>
+                ))}
+              </div>
+            </div>
             <ChatMediaInput
               localMedia={localMedia}
               setLocalMedia={setLocalMedia}
@@ -218,7 +257,7 @@ export const GenerateInputNode = memo(function GenerateInputNode({ data }: NodeP
               setGeneralContext={setGeneralContext}
             />
             <button
-              onClick={() => onSubmit(localMedia, uploaded, generalContext)}
+              onClick={() => onSubmit(localMedia, uploaded, generalContext, noteType)}
               className="w-full rounded-lg bg-gradient-to-r from-purple-600 to-violet-600 px-4 py-2.5 text-sm font-semibold text-white hover:from-purple-700 hover:to-violet-700 transition-all"
             >
               {uploaded.length > 0 ? "Re-generate Release Note" : "Generate Release Note"}
@@ -477,6 +516,185 @@ export const NotionInputNode = memo(function NotionInputNode({ data }: NodeProps
   );
 });
 
+/* ═══════════════════════════════════════════════════
+   7. Refine Chat Node — iterative refinement via chat
+   Handles: target-top (↑ from generate result)
+   ═══════════════════════════════════════════════════ */
+interface RefineMessage {
+  instruction: string;
+  mediaCount: number;
+  status: "applying" | "applied" | "error";
+  error?: string;
+}
+
+export const RefineChatNode = memo(function RefineChatNode({ data }: NodeProps) {
+  const { onRefine, streaming } = data as {
+    onRefine: (instruction: string, files: File[]) => void;
+    streaming?: boolean;
+  };
+  const [instruction, setInstruction] = useState("");
+  const [files, setFiles] = useState<File[]>([]);
+  const [previews, setPreviews] = useState<string[]>([]);
+  const [history, setHistory] = useState<RefineMessage[]>([]);
+  const historyRef = useRef<HTMLDivElement>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+
+  // Mark last message as applied/error when streaming finishes
+  const prevStreaming = useRef(streaming);
+  useEffect(() => {
+    if (prevStreaming.current && !streaming) {
+      setHistory((h) => {
+        if (h.length === 0) return h;
+        const last = h[h.length - 1];
+        if (last.status !== "applying") return h;
+        return [...h.slice(0, -1), { ...last, status: "applied" }];
+      });
+    }
+    prevStreaming.current = streaming;
+  }, [streaming]);
+
+  // Auto-scroll chat
+  useEffect(() => {
+    historyRef.current?.scrollTo({ top: historyRef.current.scrollHeight, behavior: "smooth" });
+  }, [history]);
+
+  function handleFileChange(e: React.ChangeEvent<HTMLInputElement>) {
+    const newFiles = Array.from(e.target.files ?? []);
+    setFiles((prev) => [...prev, ...newFiles]);
+    setPreviews((prev) => [...prev, ...newFiles.map((f) => URL.createObjectURL(f))]);
+    e.target.value = "";
+  }
+
+  function removeFile(i: number) {
+    URL.revokeObjectURL(previews[i]);
+    setFiles((f) => f.filter((_, idx) => idx !== i));
+    setPreviews((p) => p.filter((_, idx) => idx !== i));
+  }
+
+  function handleSend() {
+    const text = instruction.trim();
+    if (!text && files.length === 0) return;
+    setHistory((h) => [...h, { instruction: text || "(images attached)", mediaCount: files.length, status: "applying" }]);
+    onRefine(text, files);
+    setInstruction("");
+    setFiles([]);
+    previews.forEach((p) => URL.revokeObjectURL(p));
+    setPreviews([]);
+  }
+
+  function handleKeyDown(e: React.KeyboardEvent) {
+    if (e.key === "Enter" && !e.shiftKey) {
+      e.preventDefault();
+      handleSend();
+    }
+  }
+
+  function handlePaste(e: React.ClipboardEvent) {
+    const items = Array.from(e.clipboardData.items);
+    const imageFiles = items
+      .filter((item) => item.type.startsWith("image/"))
+      .map((item) => item.getAsFile())
+      .filter((f): f is File => f !== null);
+    if (imageFiles.length > 0) {
+      setFiles((prev) => [...prev, ...imageFiles]);
+      setPreviews((prev) => [...prev, ...imageFiles.map((f) => URL.createObjectURL(f))]);
+    }
+  }
+
+  return (
+    <div className="rounded-2xl border-2 border-purple-500/30 bg-[#1e1e38] shadow-xl w-[450px] transition-all">
+      <Handle type="target" position={Position.Top} id="top" style={hTop} />
+      <div className="flex items-center gap-2 px-4 py-2.5 rounded-t-2xl" style={{ background: "linear-gradient(135deg, rgba(124,58,237,0.15), transparent)" }}>
+        <div className="flex h-6 w-6 items-center justify-center rounded-md text-white" style={{ background: "linear-gradient(135deg, #7c3aed, #a855f7)" }}>
+          <AIIcon className="w-3.5 h-3.5" />
+        </div>
+        <span className="text-xs font-semibold text-white/90">Refine Release Note</span>
+        {streaming && <LoaderIcon className="w-3.5 h-3.5 text-purple-400 ml-auto" />}
+      </div>
+
+      <div className="border-t border-white/5 p-3 space-y-2">
+        {/* Chat history */}
+        {history.length > 0 && (
+          <div ref={historyRef} className="nowheel space-y-1.5 max-h-[200px] overflow-y-auto pr-1">
+            {history.map((msg, i) => (
+              <div key={i} className="rounded-lg bg-white/5 px-3 py-2">
+                <p className="text-[11px] text-white/70 leading-relaxed">{msg.instruction}</p>
+                <div className="flex items-center gap-2 mt-1">
+                  {msg.mediaCount > 0 && (
+                    <span className="text-[9px] text-purple-400/70">
+                      <ImageIcon className="w-2.5 h-2.5 inline mr-0.5" />{msg.mediaCount} image{msg.mediaCount > 1 ? "s" : ""}
+                    </span>
+                  )}
+                  <span className={`text-[9px] font-medium ml-auto ${
+                    msg.status === "applied" ? "text-emerald-400" :
+                    msg.status === "error" ? "text-red-400" :
+                    "text-purple-400"
+                  }`}>
+                    {msg.status === "applied" ? "Applied" :
+                     msg.status === "error" ? (msg.error ?? "Error") :
+                     "Applying..."}
+                    {msg.status === "applied" && <CheckIcon className="w-2.5 h-2.5 inline ml-0.5" />}
+                    {msg.status === "applying" && <LoaderIcon className="w-2.5 h-2.5 inline ml-0.5" />}
+                  </span>
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+
+        {/* Image previews */}
+        {previews.length > 0 && (
+          <div className="flex gap-1.5 flex-wrap">
+            {previews.map((src, i) => (
+              <div key={i} className="relative w-12 h-12 rounded-md overflow-hidden border border-white/10">
+                {/* eslint-disable-next-line @next/next/no-img-element */}
+                <img src={src} alt="" className="w-full h-full object-cover" />
+                <button onClick={() => removeFile(i)}
+                  className="absolute top-0 right-0 rounded-bl-md bg-black/70 p-0.5 text-white/70 hover:text-white">
+                  <XIcon className="w-2.5 h-2.5" />
+                </button>
+              </div>
+            ))}
+          </div>
+        )}
+
+        {/* Input area */}
+        <div className="flex gap-1.5 items-end">
+          <button
+            onClick={() => fileInputRef.current?.click()}
+            disabled={streaming}
+            className="flex-shrink-0 rounded-md border border-white/10 bg-white/5 p-2 text-white/40 hover:text-white/70 hover:border-white/20 disabled:opacity-30 transition-colors"
+            title="Attach images"
+          >
+            <ImageIcon className="w-3.5 h-3.5" />
+          </button>
+          <input ref={fileInputRef} type="file" accept="image/*" multiple className="sr-only" onChange={handleFileChange} />
+          <textarea
+            value={instruction}
+            onChange={(e) => setInstruction(e.target.value)}
+            onKeyDown={handleKeyDown}
+            onPaste={handlePaste}
+            disabled={streaming}
+            placeholder={streaming ? "Applying changes..." : 'e.g. "Add more detail to the notifications section" or paste images...'}
+            rows={2}
+            className="flex-1 rounded-lg border border-white/10 bg-white/5 px-3 py-2 text-xs text-white placeholder:text-white/25 outline-none focus:ring-1 focus:ring-purple-500/50 resize-none disabled:opacity-40"
+          />
+          <button
+            onClick={handleSend}
+            disabled={streaming || (!instruction.trim() && files.length === 0)}
+            className="flex-shrink-0 rounded-lg bg-purple-600 px-3 py-2 text-xs font-medium text-white hover:bg-purple-700 disabled:opacity-30 transition-colors"
+          >
+            Apply
+          </button>
+        </div>
+        <p className="text-[9px] text-white/25 leading-tight">
+          Tell the AI what to change. Attach images and say where to place them. Shift+Enter for new line.
+        </p>
+      </div>
+    </div>
+  );
+});
+
 /* ── Node type registry ── */
 export const flowNodeTypes = {
   jiraInput: JiraInputNode,
@@ -485,4 +703,5 @@ export const flowNodeTypes = {
   loading: LoadingNode,
   result: ResultNode,
   notionInput: NotionInputNode,
+  refineChat: RefineChatNode,
 };
