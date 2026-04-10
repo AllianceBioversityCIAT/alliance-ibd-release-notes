@@ -6,6 +6,9 @@ frontend:
         - npm ci
     build:
       commands:
+        - env | grep -E '^(JIRA_|OPENAI_|S3_|NOTION_)' > .env.production
+        - echo "NOTION_DATABASE_ID_TEST=${NOTION_DATABASE_ID_TEST:-$NOTION_DATABASE_ID}" >> .env.production
+        - echo "NOTION_DATABASE_ID_PROD=${NOTION_DATABASE_ID_PROD:-035e13d090ff4251acb12f8e5e2171f4}" >> .env.production
         - npm run build
   artifacts:
     baseDirectory: .next
