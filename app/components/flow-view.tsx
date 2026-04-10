@@ -15,12 +15,18 @@ import {
 import "@xyflow/react/dist/style.css";
 
 import type { LocalMediaItem, UploadedMediaItem, JiraChild, NotionPublishPayload } from "@/app/lib/types";
-import { fetchJiraContext, fetchCommits, streamReleaseNote, streamRefineNote, uploadFilesSequentially, uploadFile, publishToNotion } from "@/app/lib/api";
+import { fetchJiraContext, streamReleaseNote, streamRefineNote, uploadFilesSequentially, uploadFile, publishToNotion, convertJiraImagesToS3 } from "@/app/lib/api";
 import { transformRawToContext, transformRawChild, type RawIssueNode } from "@/app/lib/jira-transform";
 import { saveNote } from "@/app/lib/history";
 import { flowNodeTypes, type ReleaseNoteType } from "./flow-nodes";
 import { TrashIcon, PlusIcon } from "./icons";
 import { FocusIcon, GridIcon } from "./brand-icons";
+
+/* ── Extract Jira attachment URLs from markdown ── */
+const JIRA_ATTACHMENT_RE = /https:\/\/cgiarmel\.atlassian\.net\/secure\/attachment\/[^\s)]+/g;
+function findJiraImageUrls(md: string): string[] {
+  return [...md.matchAll(JIRA_ATTACHMENT_RE)].map((m) => m[0]);
+}
 
 /* ── Offsets relative to the parent node's current position ── */
 const BELOW = { dx: 0, dy: 340 };   // result below input
@@ -89,7 +95,7 @@ function mkEdge(src: string, srcH: string, tgt: string, tgtH: string): Edge {
 /* ── Persist / restore canvas ── */
 const CANVAS_KEY = "flow-canvas-state";
 
-interface FlowState { jiraKey: string; jiraKeys: string[]; jiraContext: string; owner: string; repo: string; branch: string; }
+interface FlowState { jiraKey: string; jiraKeys: string[]; jiraContext: string; }
 
 interface PersistedCanvas {
   flowCount: number;
@@ -141,7 +147,7 @@ export function FlowView({ onFullscreenMarkdown, onStreamingChange, onSwitchView
       flowStatesRef.current[prefix].jiraKey = primaryKey;
       flowStatesRef.current[prefix].jiraKeys = issueKeys;
       const jIn = nid(prefix, "jira-input"), jLoad = nid(prefix, "jira-loading");
-      const gIn = nid(prefix, "github-input");
+      const genIn = nid(prefix, "generate-input");
 
       const label = issueKeys.length > 1
         ? `Fetching ${issueKeys.length} Jira contexts...`
@@ -207,20 +213,20 @@ export function FlowView({ onFullscreenMarkdown, onStreamingChange, onSwitchView
             }
           });
 
-          const githubX = p.x + Math.max(RIGHT.dx, issueKeys.length * RESULT_W + 30);
+          const generateX = p.x + Math.max(RIGHT.dx, issueKeys.length * RESULT_W + 30);
           return [
             ...nds.filter((n) => n.id !== jLoad),
             ...resultNodes,
             ...allChildNodes,
-            { id: gIn, type: "githubInput",
-              position: { x: githubX, y: p.y + RIGHT.dy },
-              data: { jiraTicket: primaryKey, onSubmit: (o: string, r: string, b: string) => handleGitHub(o, r, b), onSkip: handleGitHubSkip, disabled: false } } as Node,
+            { id: genIn, type: "generateInput",
+              position: { x: generateX, y: p.y + RIGHT.dy },
+              data: { onSubmit: (m: LocalMediaItem[], e: UploadedMediaItem[], gc: string, nt: ReleaseNoteType) => handleGenerate(m, e, gc, nt), disabled: false } } as Node,
           ];
         });
         setEdges((eds) => {
           const base = eds.filter((e) => !e.id.includes(jLoad));
           const resultEdges = issueKeys.map((_, i) => mkEdge(jIn, "bottom", nid(prefix, `jira-result-${i}`), "top"));
-          return [...base, ...resultEdges, ...childEdges, mkEdge(jIn, "right", gIn, "left")];
+          return [...base, ...resultEdges, ...childEdges, mkEdge(jIn, "right", genIn, "left")];
         });
       } catch (err) {
         setNodes((nds) => nds.filter((n) => n.id !== jLoad)
@@ -233,7 +239,7 @@ export function FlowView({ onFullscreenMarkdown, onStreamingChange, onSwitchView
     /* Re-enable jira-input and wipe all downstream nodes/edges for this flow */
     const handleJiraReset = () => {
       const jIn = nid(prefix, "jira-input");
-      flowStatesRef.current[prefix] = { jiraKey: "", jiraKeys: [], jiraContext: "", owner: "", repo: "", branch: "" };
+      flowStatesRef.current[prefix] = { jiraKey: "", jiraKeys: [], jiraContext: "" };
       setNodes((nds) => nds
         .filter((n) => !n.id.startsWith(prefix + "-") || n.id === jIn)
         .map((n) => n.id === jIn
@@ -244,61 +250,6 @@ export function FlowView({ onFullscreenMarkdown, onStreamingChange, onSwitchView
       setEdges((eds) => eds.filter(
         (e) => !e.source.startsWith(prefix + "-") && !e.target.startsWith(prefix + "-")
       ));
-    };
-
-    const handleGitHubSkip = () => {
-      const gIn = nid(prefix, "github-input");
-      const genIn = nid(prefix, "generate-input");
-
-      setNodes((nds) => {
-        const p = findPos(nds, gIn);
-        return [
-          ...nds.map((n) => n.id === gIn ? { ...n, data: { ...n.data, disabled: true, skipped: true } } : n),
-          { id: genIn, type: "generateInput",
-            position: { x: p.x + RIGHT.dx, y: p.y + RIGHT.dy },
-            data: { onSubmit: (m: LocalMediaItem[], e: UploadedMediaItem[], gc: string, nt: ReleaseNoteType) => handleGenerate(m, e, gc, nt), disabled: false } } as Node,
-        ];
-      });
-      setEdges((eds) => [...eds, mkEdge(gIn, "right", genIn, "left")]);
-    };
-
-    const handleGitHub = async (owner: string, repo: string, branch: string) => {
-      const s = flowStatesRef.current[prefix];
-      s.owner = owner; s.repo = repo; s.branch = branch;
-      const gIn = nid(prefix, "github-input"), cLoad = nid(prefix, "commits-loading");
-      const cRes = nid(prefix, "commits-result"), genIn = nid(prefix, "generate-input");
-
-      setNodes((nds) => {
-        const p = findPos(nds, gIn);
-        return [
-          ...nds.map((n) => n.id === gIn ? { ...n, data: { ...n.data, disabled: true } } : n),
-          { id: cLoad, type: "loading", position: { x: p.x + BELOW.dx, y: p.y + BELOW.dy }, data: { label: "Fetching Commits...", color: "#24292e" } } as Node,
-        ];
-      });
-      setEdges((eds) => [...eds, mkEdge(gIn, "bottom", cLoad, "top")]);
-
-      try {
-        const data = await fetchCommits({ owner, repo, branch, jira_ticket: st().jiraKey });
-        setNodes((nds) => {
-          const p = findPos(nds, gIn);
-          return [
-            ...nds.filter((n) => n.id !== cLoad),
-            { id: cRes, type: "result", position: { x: p.x + BELOW.dx, y: p.y + BELOW.dy }, style: { width: 700 },
-              data: { markdown: data.release_notes_input, title: `Commits: ${repo}/${branch}`, color: "#24292e", icon: "github", onFullscreen: () => onFullscreenMarkdown(data.release_notes_input) } } as Node,
-            { id: genIn, type: "generateInput", position: { x: p.x + RIGHT.dx, y: p.y + RIGHT.dy },
-              data: { onSubmit: (m: LocalMediaItem[], e: UploadedMediaItem[], gc: string, nt: ReleaseNoteType) => handleGenerate(m, e, gc, nt), disabled: false } } as Node,
-          ];
-        });
-        setEdges((eds) => [
-          ...eds.filter((e) => !e.id.includes(cLoad)),
-          mkEdge(gIn, "bottom", cRes, "top"),
-          mkEdge(gIn, "right", genIn, "left"),
-        ]);
-      } catch (err) {
-        setNodes((nds) => nds.filter((n) => n.id !== cLoad).map((n) => n.id === gIn ? { ...n, data: { ...n.data, disabled: false, onSubmit: (o: string, r: string, b: string) => handleGitHub(o, r, b), onSkip: handleGitHubSkip } } : n));
-        setEdges((eds) => eds.filter((e) => !e.id.includes(cLoad)));
-        alert(`GitHub error: ${err instanceof Error ? err.message : "Unknown error"}`);
-      }
     };
 
     const handleGenerateRegenerate = () => {
@@ -340,7 +291,7 @@ export function FlowView({ onFullscreenMarkdown, onStreamingChange, onSwitchView
       setEdges((eds) => [...eds.filter((e) => !e.id.includes(genRes) && !e.id.includes(notionIn)), mkEdge(genIn, "bottom", genLoad, "top")]);
 
       try {
-        // Upload only new files, keep existing URLs
+        // Upload new files to S3, keep existing URLs
         const newFiles = newLocalMedia.map((m) => m.file);
         const newUrls = newFiles.length > 0 ? await uploadFilesSequentially(newFiles) : [];
         const newUploaded: UploadedMediaItem[] = newUrls.map((url, i) => ({
@@ -349,7 +300,6 @@ export function FlowView({ onFullscreenMarkdown, onStreamingChange, onSwitchView
           fileName: newLocalMedia[i]?.file.name || "file",
         }));
 
-        // Combine existing + newly uploaded
         const allUploaded = [...existingMedia, ...newUploaded];
         const media = allUploaded.map((m) => ({ url: m.url, ai_context: m.ai_context }));
 
@@ -359,7 +309,7 @@ export function FlowView({ onFullscreenMarkdown, onStreamingChange, onSwitchView
 
         onStreamingChange?.(true);
 
-        for await (const chunk of streamReleaseNote({ owner: s.owner, repo: s.repo, branch: s.branch, jira_tickets: s.jiraKeys.length > 0 ? s.jiraKeys : [s.jiraKey], jira_context: s.jiraContext, media, general_context: generalContext, note_type: noteType })) {
+        for await (const chunk of streamReleaseNote({ jira_tickets: s.jiraKeys.length > 0 ? s.jiraKeys : [s.jiraKey], jira_context: s.jiraContext, media, general_context: generalContext, note_type: noteType })) {
           accumulated += chunk;
 
           if (isFirstChunk) {
@@ -385,10 +335,27 @@ export function FlowView({ onFullscreenMarkdown, onStreamingChange, onSwitchView
           }
         }
 
-        const firstHeading = accumulated.match(/^#\s+(.+)$/m)?.[1] || s.jiraKey;
-        saveNote({ jiraKey: s.jiraKey, title: firstHeading, markdown: accumulated });
         onStreamingChange?.(false);
-        const finalMd = accumulated;
+
+        // Post-generation: convert Jira attachment URLs to S3
+        let finalMd = accumulated;
+        const jiraUrls = findJiraImageUrls(finalMd);
+        if (jiraUrls.length > 0) {
+          const mappings = await convertJiraImagesToS3(jiraUrls);
+          for (const [jiraUrl, s3Url] of Object.entries(mappings)) {
+            finalMd = finalMd.replaceAll(jiraUrl, s3Url);
+          }
+          // Update the result node with S3 URLs
+          setNodes((nds) => nds.map((n) =>
+            n.id === genRes
+              ? { ...n, data: { ...n.data, markdown: finalMd, onFullscreen: () => onFullscreenMarkdown(finalMd) } }
+              : n
+          ));
+          onFullscreenMarkdown(finalMd);
+        }
+
+        const firstHeading = finalMd.match(/^#\s+(.+)$/m)?.[1] || s.jiraKey;
+        saveNote({ jiraKey: s.jiraKey, title: firstHeading, markdown: finalMd });
 
         const refineId = nid(prefix, "refine-chat");
 
@@ -421,6 +388,7 @@ export function FlowView({ onFullscreenMarkdown, onStreamingChange, onSwitchView
                     released_date: new Date().toISOString().split("T")[0],
                     markdown: finalMd,
                     cover_url: payload.cover_url,
+                    notion_env: payload.notion_env,
                   }),
               },
             } as Node,
@@ -451,7 +419,7 @@ export function FlowView({ onFullscreenMarkdown, onStreamingChange, onSwitchView
       ));
 
       try {
-        // Upload images if any
+        // Upload images to S3
         const mediaItems: { url: string; ai_context: string }[] = [];
         for (const file of files) {
           const url = await uploadFile(file);
@@ -506,6 +474,7 @@ export function FlowView({ onFullscreenMarkdown, onStreamingChange, onSwitchView
                     released_date: new Date().toISOString().split("T")[0],
                     markdown: refinedMd,
                     cover_url: payload.cover_url,
+                    notion_env: payload.notion_env,
                   }),
               },
             };
@@ -524,7 +493,7 @@ export function FlowView({ onFullscreenMarkdown, onStreamingChange, onSwitchView
       }
     };
 
-    return { handleJira, handleJiraReset, handleGitHub, handleGitHubSkip, handleGenerate, handleGenerateRegenerate, handleRefine };
+    return { handleJira, handleJiraReset, handleGenerate, handleGenerateRegenerate, handleRefine };
   }
 
   /* ── Save canvas on every change ── */
@@ -592,11 +561,10 @@ export function FlowView({ onFullscreenMarkdown, onStreamingChange, onSwitchView
   /* ── Rehydrate node: re-attach callbacks ── */
   function rehydrateNode(n: PersistedCanvas["nodes"][number]): Node {
     const prefix = n.id.split("-")[0];
-    const { handleJira, handleJiraReset, handleGitHub, handleGitHubSkip, handleGenerate, handleGenerateRegenerate, handleRefine } = makeHandlers(prefix);
+    const { handleJira, handleJiraReset, handleGenerate, handleGenerateRegenerate, handleRefine } = makeHandlers(prefix);
     const data = { ...n.data };
 
     if (n.type === "jiraInput") { data.onSubmit = handleJira; data.onReset = handleJiraReset; }
-    else if (n.type === "githubInput") { data.onSubmit = (o: string, r: string, b: string) => handleGitHub(o, r, b); data.onSkip = handleGitHubSkip; }
     else if (n.type === "generateInput") {
       data.onSubmit = (m: LocalMediaItem[], e: UploadedMediaItem[], gc: string, nt: ReleaseNoteType) => handleGenerate(m, e, gc, nt);
       data.onRegenerate = handleGenerateRegenerate;
@@ -629,7 +597,7 @@ export function FlowView({ onFullscreenMarkdown, onStreamingChange, onSwitchView
       const title = (data._title as string) || "";
       const markdown = data._markdown as string;
       data.onPublish = (payload: NotionPublishPayload) =>
-        publishToNotion({ title, brief_description: payload.brief_description, tag: payload.tag, projects: payload.projects, released_date: new Date().toISOString().split("T")[0], markdown, cover_url: payload.cover_url });
+        publishToNotion({ title, brief_description: payload.brief_description, tag: payload.tag, projects: payload.projects, released_date: new Date().toISOString().split("T")[0], markdown, cover_url: payload.cover_url, notion_env: payload.notion_env });
     }
 
     return { id: n.id, type: n.type, position: n.position, style: n.style, data } as Node;
@@ -644,8 +612,12 @@ export function FlowView({ onFullscreenMarkdown, onStreamingChange, onSwitchView
     if (saved && saved.nodes.length > 0) {
       flowCountRef.current = saved.flowCount;
       flowStatesRef.current = saved.flowStates;
-      setNodes(saved.nodes.map(rehydrateNode));
-      setEdges(saved.edges);
+      // Filter out nodes with unknown types (e.g. removed githubInput)
+      const validNodes = saved.nodes.filter((n) => n.type in flowNodeTypes);
+      const validNodeIds = new Set(validNodes.map((n) => n.id));
+      const validEdges = saved.edges.filter((e) => validNodeIds.has(e.source) && validNodeIds.has(e.target));
+      setNodes(validNodes.map(rehydrateNode));
+      setEdges(validEdges);
     } else {
       createNewFlow(0);
     }
@@ -657,7 +629,7 @@ export function FlowView({ onFullscreenMarkdown, onStreamingChange, onSwitchView
     const idx = flowCountRef.current;
     flowCountRef.current += 1;
     const prefix = `f${idx}`;
-    flowStatesRef.current[prefix] = { jiraKey: "", jiraKeys: [], jiraContext: "", owner: "", repo: "", branch: "" };
+    flowStatesRef.current[prefix] = { jiraKey: "", jiraKeys: [], jiraContext: "" };
     const { handleJira, handleJiraReset } = makeHandlers(prefix);
 
     setNodes((nds) => [
@@ -679,7 +651,7 @@ export function FlowView({ onFullscreenMarkdown, onStreamingChange, onSwitchView
       const idx = flowCountRef.current;
       flowCountRef.current += 1;
       const prefix = `f${idx}`;
-      flowStatesRef.current[prefix] = { jiraKey: "", jiraKeys: [], jiraContext: "", owner: "", repo: "", branch: "" };
+      flowStatesRef.current[prefix] = { jiraKey: "", jiraKeys: [], jiraContext: "" };
       const { handleJira, handleJiraReset } = makeHandlers(prefix);
 
       return [
@@ -695,12 +667,12 @@ export function FlowView({ onFullscreenMarkdown, onStreamingChange, onSwitchView
     localStorage.removeItem(CANVAS_KEY);
     flowCountRef.current = 0;
     flowStatesRef.current = {};
-    initDone.current = true;
+    measuredHeightsRef.current = {};
 
     // Create fresh flow directly (not via createNewFlow which appends)
     const prefix = "f0";
     flowCountRef.current = 1;
-    flowStatesRef.current[prefix] = { jiraKey: "", jiraKeys: [], jiraContext: "", owner: "", repo: "", branch: "" };
+    flowStatesRef.current[prefix] = { jiraKey: "", jiraKeys: [], jiraContext: "" };
     const { handleJira, handleJiraReset } = makeHandlers(prefix);
 
     setNodes([

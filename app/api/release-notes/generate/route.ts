@@ -1,6 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
 import { buildJiraContextMulti } from "../_lib/jira";
-import { fetchGitHubCommits, filterAndFormatCommits } from "../_lib/github";
 
 export const dynamic = "force-dynamic";
 
@@ -9,38 +8,42 @@ const SYSTEM_MESSAGE = `You are a release notes writer for PRMS (Performance and
 Your job is to write clear, well-structured release notes that explain what was built or improved so stakeholders and users understand what changed in the platform. These are mostly development releases (new features, enhancements, bug fixes).
 
 ## Writing Style
-- Write clearly and concisely — every sentence should add value
-- Lead with WHAT changed and WHY it matters to the user
+- Write in English
+- Professional but accessible — written for someone who uses the platform daily but has never seen code
 - Use active voice: "You can now...", "We improved...", "The system now..."
-- Be professional and direct — no fluff, no filler, no generic praise
-- ZERO technical jargon — no code terms, no ticket IDs, no sprint names
-- Write for someone who uses the platform daily but has never seen code
-- Do NOT use emojis. Keep it clean and professional.
-- Do NOT write generic statements like "vibrant colors", "professional look and feel", "harmoniously presented". Be SPECIFIC about what changed.
+- Be specific: mention buttons, screens, flows, field names, navigation paths
+- Every sentence should add value — no fluff, no filler, no generic praise
+- Do NOT use emojis
+- Do NOT write generic statements like "vibrant colors", "professional look and feel", "beautiful design", "modern look", "harmoniously presented"
 
 ## Structure
 
-### Title
+Follow this exact structure:
+
+### 1. Title and Summary
 - A clear, descriptive title that tells what this release is about
-- Below the title, 1-2 sentences summarizing the key changes
+- 1-2 paragraphs summarizing the key changes and why they matter
 
-### Sections
-Use rich Markdown formatting:
-- **bold** for key phrases
-- > blockquotes for important takeaways
-- --- horizontal rules between sections
-- ### headings for each major change
+### 2. Key Improvements (bullet list)
+A "### Key improvements" section with 3-5 bullet points giving a quick overview of everything that changed. Each bullet should be one sentence, specific and actionable.
 
-For each change:
-- A ### heading that describes the specific improvement
-- 2-3 sentences explaining what changed and why it matters
-- Be specific: mention which part of the platform, what the user will see differently, what problem it solves
+### 3. Detailed Sections
+After the key improvements, write detailed sections (## headings) for each major change. Each section should:
+- Have a descriptive ## heading (e.g., "## Center-Focused Navigation and Layout")
+- Include 2-3 paragraphs explaining what changed, how the user interacts with it, and what they should expect
+- Mention specific UI elements by their PURPOSE: buttons, fields, modals, dropdowns, navigation paths
+- Use ### sub-headings within sections when there are distinct sub-features
+- Separate each section with --- horizontal rules
 
-### Footer
-- "---" separator
-- A short closing thanking the team
-- List developers/contributors with GitHub links: [@user](https://github.com/user)
-- If a Jira reporter is provided: "Special thanks to [Name] for identifying this need."
+### 4. Access and Permissions
+A "## Access and Permissions" section listing:
+- Which roles have access (SP Lead, Coordinator, Admin, Data Provider, etc.)
+- What each role can do (full access, read-only, etc.)
+- How to navigate to the feature (breadcrumb path, menu location)
+
+### 5. Contributors
+- "Contributors: Name1, Name2, Name3" — list the developers
+- "Special thanks to [Reporter Name] for identifying this need." (if a Jira reporter is provided)
 
 ## GOLDEN RULE for Images — Context or Nothing
 
@@ -80,17 +83,18 @@ Every image description MUST be grounded in the Jira context (tickets, subtasks,
 - NEVER mention refactor, module, handler, API, endpoint, service, TypeScript, Angular
 - NEVER write generic filler like "beautiful design", "modern look", "vibrant colors"
 - ALWAYS write raw Markdown
+- ALWAYS include the "### Key improvements" bullet list after the opening summary
+- ALWAYS include the "## Access and Permissions" section
 - Keep it specific, useful, and readable`;
 
 export async function POST(req: NextRequest) {
   try {
-    const { owner, repo, branch, jira_ticket, jira_tickets, jira_context: clientJiraContext, media, general_context, note_type } = await req.json();
+    const { jira_ticket, jira_tickets, jira_context: clientJiraContext, media, general_context, note_type } = await req.json();
     // Accept jira_tickets (array) or legacy jira_ticket (string)
     const jiraKeys: string[] =
       jira_tickets ?? (jira_ticket ? [jira_ticket] : []);
 
     // Use pre-fetched jira_context from client if available, otherwise fetch
-    const hasGitHub = owner && repo && branch;
     let jira_context: string;
     let reporters: string[] = [];
 
@@ -108,35 +112,28 @@ export async function POST(req: NextRequest) {
       reporters = result.reporters;
     }
 
-    let commits: Awaited<ReturnType<typeof fetchGitHubCommits>> = [];
-    if (hasGitHub) {
-      commits = await fetchGitHubCommits(owner, repo, branch);
-    }
-
-    const { release_notes_input } = hasGitHub
-      ? filterAndFormatCommits(commits, jira_ticket)
-      : { release_notes_input: "No GitHub commits provided." };
-
     // Note type instructions
     const noteTypeInstructions: Record<string, string> = {
       detailed: `## RELEASE NOTE TYPE: DETAILED / TUTORIAL
 This is a comprehensive release with lots of context. Write an EXTENSIVE, in-depth release note that:
-- Covers EVERY subtask, story, and change individually with its own section
+- Covers EVERY subtask, story, and change individually with its own ## section
 - Explains each feature as a mini-tutorial: what it does, how the user interacts with it, what they should expect
 - Uses step-by-step descriptions where applicable (e.g., "First you'll see..., then you can...")
-- Includes specific UI element references (buttons, fields, screens, modals)
+- Includes specific UI element references (buttons, fields, screens, modals, navigation paths)
 - Provides context about WHY each change matters to the user's workflow
 - Should be AT LEAST 2000+ words for complex features — do NOT summarize or condense
-- Think of this as a product guide, not just a changelog`,
+- Still follow the full structure: Title → Summary → Key improvements → Detailed sections → Access and Permissions → Contributors`,
       brief: `## RELEASE NOTE TYPE: BRIEF / PATCH
 This is a small, focused change. Write a SHORT, concise release note:
 - 2-4 paragraphs maximum
 - Get straight to the point — what changed and why
-- No lengthy explanations or tutorials
-- Perfect for bug fixes, small enhancements, or single-feature patches`,
+- Still include "### Key improvements" with 2-3 bullets
+- Still include "## Access and Permissions" (can be brief)
+- Still include Contributors at the end`,
       standard: `## RELEASE NOTE TYPE: STANDARD
-Write a balanced release note that covers all changes with appropriate detail:
-- Each major change gets its own section with 2-3 paragraphs
+Write a balanced release note following the full structure:
+- Title → Summary → Key improvements → Detailed sections → Access and Permissions → Contributors
+- Each major change gets its own ## section with 2-3 paragraphs
 - Include enough detail to understand the change without being exhaustive
 - Scale the length proportionally to the amount of Jira context provided`,
     };
@@ -160,7 +157,6 @@ Write a balanced release note that covers all changes with appropriate detail:
       `${typeInstruction}\n\n` +
       `Write release notes from this data:\n\n` +
       `${jira_context}\n\n` +
-      `${release_notes_input}\n\n` +
       `Jira Reporter(s): ${reporters.join(", ")}\n\n` +
       `## Media\n${mediaSection}` +
       (general_context ? `\n\n## General context about the media (provided by the author):\n${general_context}` : "") +

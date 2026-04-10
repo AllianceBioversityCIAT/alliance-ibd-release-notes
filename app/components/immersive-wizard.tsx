@@ -2,19 +2,17 @@
 
 import { useState, useCallback, useEffect, useRef, Fragment } from "react";
 import dynamic from "next/dynamic";
-import { DEFAULTS } from "@/app/lib/constants";
 import type { LocalMediaItem } from "@/app/lib/types";
-import { fetchJiraContext, fetchCommits, streamReleaseNote, uploadFilesSequentially } from "@/app/lib/api";
+import { fetchJiraContext, streamReleaseNote, uploadFilesSequentially } from "@/app/lib/api";
 import { saveNote } from "@/app/lib/history";
 import { JiraStep } from "./jira-step";
-import { GitHubStep } from "./github-step";
 import { GenerateStep } from "./generate-step";
 import { HistoryPanel } from "./history-panel";
 import { HistoryIcon, CheckIcon, XIcon, SparklesIcon, EditIcon } from "./icons";
 import { MarkdownRenderer } from "./markdown-renderer";
 import { MarkdownEditorView } from "./markdown-editor";
 import { CopyButton } from "./copy-button";
-import { JiraIcon, GitHubIcon, AIIcon, GridIcon, FocusIcon, FlowIcon } from "./brand-icons";
+import { JiraIcon, AIIcon, GridIcon, FocusIcon, FlowIcon } from "./brand-icons";
 import { PanoramicView } from "./panoramic-view";
 import { WorkspaceView } from "./workspace-view";
 import type { ParticleState } from "./three/particle-field";
@@ -35,19 +33,12 @@ type ViewMode = "panoramic" | "workspace" | "flow";
 export function ImmersiveWizard() {
   // Form state
   const [issueKeys, setIssueKeys] = useState<string[]>([""]);
-  const [owner, setOwner] = useState<string>(DEFAULTS.owner);
-  const [repo, setRepo] = useState<string>(DEFAULTS.repo);
-  const [branch, setBranch] = useState<string>(DEFAULTS.branch);
   const [media, setMedia] = useState<LocalMediaItem[]>([]);
 
   // Steps
   const [jiraLoading, setJiraLoading] = useState(false);
   const [jiraError, setJiraError] = useState<string | null>(null);
   const [jiraResult, setJiraResult] = useState<string | null>(null);
-
-  const [commitsLoading, setCommitsLoading] = useState(false);
-  const [commitsError, setCommitsError] = useState<string | null>(null);
-  const [commitsResult, setCommitsResult] = useState<string | null>(null);
 
   const [generateLoading, setGenerateLoading] = useState(false);
   const [generateError, setGenerateError] = useState<string | null>(null);
@@ -124,13 +115,10 @@ export function ImmersiveWizard() {
   // Derived
   const completedSteps = new Set<number>();
   if (jiraResult) completedSteps.add(1);
-  if (commitsResult) completedSteps.add(2);
-  if (generateResult) completedSteps.add(3);
+  if (generateResult) completedSteps.add(2);
 
   const particleState: ParticleState = generateLoading
     ? "ai-generating"
-    : commitsLoading
-    ? "commits-loading"
     : jiraLoading
     ? "jira-loading"
     : generateResult
@@ -141,8 +129,6 @@ export function ImmersiveWizard() {
   const handleFetchJira = useCallback(async () => {
     setJiraLoading(true);
     setJiraError(null);
-    setCommitsResult(null);
-    setCommitsError(null);
     setGenerateResult(null);
     setGenerateError(null);
     try {
@@ -156,22 +142,6 @@ export function ImmersiveWizard() {
       setJiraLoading(false);
     }
   }, [issueKeys]);
-
-  const handleFetchCommits = useCallback(async () => {
-    setCommitsLoading(true);
-    setCommitsError(null);
-    setGenerateResult(null);
-    setGenerateError(null);
-    try {
-      const data = await fetchCommits({ owner, repo, branch, jira_ticket: issueKeys[0]?.trim() ?? "" });
-      setCommitsResult(data.release_notes_input);
-      setActiveStep(3);
-    } catch (e) {
-      setCommitsError(e instanceof Error ? e.message : "Failed to fetch commits");
-    } finally {
-      setCommitsLoading(false);
-    }
-  }, [owner, repo, branch, issueKeys]);
 
   const handleGenerate = useCallback(async () => {
     setGenerateLoading(true);
@@ -189,7 +159,7 @@ export function ImmersiveWizard() {
       const mediaPayload = urls.map((url, i) => ({ url, ai_context: media[i]?.ai_context || "" }));
 
       const validJiraKeys = issueKeys.filter((k) => k.trim());
-      for await (const chunk of streamReleaseNote({ owner, repo, branch, jira_tickets: validJiraKeys, media: mediaPayload })) {
+      for await (const chunk of streamReleaseNote({ jira_tickets: validJiraKeys, media: mediaPayload })) {
         if (isFirstChunk) {
           isFirstChunk = false;
           setGenerateLoading(false);
@@ -218,21 +188,16 @@ export function ImmersiveWizard() {
         setGenerateError("No content returned. Please try again.");
       }
     }
-  }, [owner, repo, branch, issueKeys, media]);
+  }, [issueKeys, media]);
 
   // Step nav icons
   const steps = [
     { num: 1, icon: <JiraIcon className="w-4 h-4" />, label: "Jira", color: "#0052CC" },
-    { num: 2, icon: <GitHubIcon className="w-4 h-4" />, label: "GitHub", color: "#24292e" },
-    { num: 3, icon: <AIIcon className="w-4 h-4" />, label: "Generate", color: "#7c3aed" },
+    { num: 2, icon: <AIIcon className="w-4 h-4" />, label: "Generate", color: "#7c3aed" },
   ];
 
   // Panel configs (shared between panoramic and workspace)
-  const panelConfigs: [
-    { icon: React.ReactNode; color: string; title: string; subtitle: string; isLocked: boolean; isComplete: boolean; content: React.ReactNode },
-    { icon: React.ReactNode; color: string; title: string; subtitle: string; isLocked: boolean; isComplete: boolean; content: React.ReactNode },
-    { icon: React.ReactNode; color: string; title: string; subtitle: string; isLocked: boolean; isComplete: boolean; content: React.ReactNode },
-  ] = [
+  const panelConfigs = [
     {
       icon: <JiraIcon className="w-4 h-4" />,
       color: "#0052CC",
@@ -252,34 +217,11 @@ export function ImmersiveWizard() {
       ),
     },
     {
-      icon: <GitHubIcon className="w-4 h-4" />,
-      color: "#24292e",
-      title: "GitHub Commits",
-      subtitle: "Gather commit history",
-      isLocked: !jiraResult,
-      isComplete: !!commitsResult,
-      content: (
-        <GitHubStep
-          owner={owner}
-          repo={repo}
-          branch={branch}
-          jiraTicket={issueKeys[0] ?? ""}
-          onOwnerChange={setOwner}
-          onRepoChange={setRepo}
-          onBranchChange={setBranch}
-          onFetch={handleFetchCommits}
-          loading={commitsLoading}
-          error={commitsError}
-          result={commitsResult}
-        />
-      ),
-    },
-    {
       icon: <AIIcon className="w-4 h-4" />,
       color: "#7c3aed",
       title: "Generate Release Note",
       subtitle: "AI-powered blog post",
-      isLocked: !commitsResult,
+      isLocked: !jiraResult,
       isComplete: !!generateResult,
       content: (
         <GenerateStep
@@ -459,7 +401,7 @@ export function ImmersiveWizard() {
       )}
 
       {/* Loading overlay - icon + text in center of leaf whirlwind (only non-flow views) */}
-      {!isFlow && (jiraLoading || commitsLoading || generateLoading) && (
+      {!isFlow && (jiraLoading || generateLoading) && (
         <div className="fixed inset-0 z-[15] pointer-events-none flex items-center justify-center">
           <div className="flex flex-col items-center gap-4 animate-fade-in rounded-3xl bg-black/40 backdrop-blur-md px-10 py-8">
             {/* Spinning icon ring */}
@@ -468,16 +410,8 @@ export function ImmersiveWizard() {
               <div
                 className="absolute h-24 w-24 rounded-full border-2 border-transparent animate-spin"
                 style={{
-                  borderTopColor: jiraLoading
-                    ? "#2684FF"
-                    : commitsLoading
-                    ? "#8b949e"
-                    : "#a855f7",
-                  borderRightColor: jiraLoading
-                    ? "#0052CC40"
-                    : commitsLoading
-                    ? "#8b949e40"
-                    : "#a855f740",
+                  borderTopColor: jiraLoading ? "#2684FF" : "#a855f7",
+                  borderRightColor: jiraLoading ? "#0052CC40" : "#a855f740",
                   animationDuration: generateLoading ? "1s" : "1.5s",
                 }}
               />
@@ -488,8 +422,6 @@ export function ImmersiveWizard() {
                   background: `radial-gradient(circle, ${
                     jiraLoading
                       ? "rgba(0,82,204,0.2)"
-                      : commitsLoading
-                      ? "rgba(139,148,158,0.15)"
                       : "rgba(168,85,247,0.25)"
                   } 0%, transparent 70%)`,
                 }}
@@ -499,23 +431,14 @@ export function ImmersiveWizard() {
                 className="relative flex h-14 w-14 items-center justify-center rounded-2xl text-white shadow-2xl loading-icon-bounce"
                 style={{
                   background: `linear-gradient(135deg, ${
-                    jiraLoading
-                      ? "#0052CC, #2684FF"
-                      : commitsLoading
-                      ? "#24292e, #444d56"
-                      : "#7c3aed, #a855f7"
+                    jiraLoading ? "#0052CC, #2684FF" : "#7c3aed, #a855f7"
                   })`,
                   boxShadow: `0 0 40px ${
-                    jiraLoading
-                      ? "rgba(0,82,204,0.4)"
-                      : commitsLoading
-                      ? "rgba(139,148,158,0.3)"
-                      : "rgba(168,85,247,0.5)"
+                    jiraLoading ? "rgba(0,82,204,0.4)" : "rgba(168,85,247,0.5)"
                   }`,
                 }}
               >
                 {jiraLoading && <JiraIcon className="w-7 h-7" />}
-                {commitsLoading && <GitHubIcon className="w-7 h-7" />}
                 {generateLoading && <AIIcon className="w-7 h-7" />}
               </div>
             </div>
@@ -523,12 +446,10 @@ export function ImmersiveWizard() {
             <div className="flex flex-col items-center gap-1.5">
               <p className="text-sm font-semibold text-white/90 tracking-wide">
                 {jiraLoading && "Fetching Jira Context"}
-                {commitsLoading && "Fetching Commits"}
                 {generateLoading && "Generating Release Note"}
               </p>
               <p className="text-xs text-white/50">
                 {jiraLoading && "Connecting to Jira API..."}
-                {commitsLoading && "Scanning repository history..."}
                 {generateLoading && "AI is writing your blog post..."}
               </p>
               {/* Animated dots */}

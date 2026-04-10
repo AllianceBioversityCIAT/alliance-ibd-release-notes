@@ -359,7 +359,9 @@ export const NotionInputNode = memo(function NotionInputNode({ data }: NodeProps
   const { onPublish } = data as {
     onPublish: (payload: NotionPublishPayload) => Promise<NotionPublishResult>;
   };
-  const [publishedUrl, setPublishedUrl] = useState<string | null>(null);
+  type EnvKey = "test" | "prod";
+  const [env, setEnv] = useState<EnvKey>("test");
+  const [publishedUrls, setPublishedUrls] = useState<Record<EnvKey, string | null>>({ test: null, prod: null });
   const [publishing, setPublishing] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [tags, setTags] = useState<string[]>([]);
@@ -372,10 +374,14 @@ export const NotionInputNode = memo(function NotionInputNode({ data }: NodeProps
   const [bannerUrl, setBannerUrl] = useState<string | null>(null);
 
   useEffect(() => {
-    getNotionOptions()
-      .then(({ tags: t, projects: p }) => { setTags(t); setAllProjects(p); })
+    let cancelled = false;
+    getNotionOptions(env)
+      .then(({ tags: t, projects: p }) => {
+        if (!cancelled) { setTags(t); setAllProjects(p); }
+      })
       .catch(() => {});
-  }, []);
+    return () => { cancelled = true; };
+  }, [env]);
 
   async function handleBannerChange(e: React.ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0];
@@ -399,18 +405,29 @@ export const NotionInputNode = memo(function NotionInputNode({ data }: NodeProps
     setBannerUrl(null);
   }
 
-  async function handlePublish() {
+  const publishingRef = useRef(false);
+
+  async function handlePublish(targetEnv: EnvKey = env) {
+    if (publishingRef.current) return; // synchronous guard — prevents concurrent publishes
+    publishingRef.current = true;
     setPublishing(true);
     setError(null);
     try {
-      const res = await onPublish({ tag, projects, brief_description: brief, cover_url: bannerUrl ?? undefined });
-      setPublishedUrl(res.url);
+      const res = await onPublish({ tag, projects, brief_description: brief, cover_url: bannerUrl ?? undefined, notion_env: targetEnv });
+      setPublishedUrls((prev) => ({ ...prev, [targetEnv]: res.url }));
     } catch (e) {
       setError(e instanceof Error ? e.message : "Error publishing");
     } finally {
+      publishingRef.current = false;
       setPublishing(false);
     }
   }
+
+  const currentPublished = publishedUrls[env];
+  const otherEnv: EnvKey = env === "test" ? "prod" : "test";
+  const otherPublished = publishedUrls[otherEnv];
+
+  const bothPublished = publishedUrls.test && publishedUrls.prod;
 
   return (
     <div className="rounded-2xl border-2 shadow-xl w-[360px] transition-all border-gray-600/40 bg-[#1e1e38]">
@@ -420,24 +437,51 @@ export const NotionInputNode = memo(function NotionInputNode({ data }: NodeProps
           <NotionIcon className="w-4 h-4" />
         </div>
         <span className="text-sm font-semibold text-white">Publish to Notion</span>
-        {publishedUrl && <span className="ml-auto text-[10px] font-medium text-emerald-400 bg-emerald-500/20 rounded-full px-2 py-0.5">Published</span>}
+        {bothPublished && <span className="ml-auto text-[10px] font-medium text-emerald-400 bg-emerald-500/20 rounded-full px-2 py-0.5">Both</span>}
+        {!bothPublished && currentPublished && <span className="ml-auto text-[10px] font-medium text-emerald-400 bg-emerald-500/20 rounded-full px-2 py-0.5">{env === "test" ? "Test" : "Prod"}</span>}
       </div>
       <div className="nowheel p-4 space-y-3 border-t border-white/5">
-        {publishedUrl ? (
+        {/* Environment toggle */}
+        <div className="flex rounded-lg overflow-hidden border border-white/10">
+          <button onClick={() => setEnv("test")}
+            className={`flex-1 px-3 py-1.5 text-[11px] font-semibold transition-colors ${env === "test" ? "bg-amber-500/20 text-amber-400 border-r border-white/10" : "bg-white/5 text-white/40 hover:text-white/60 border-r border-white/10"}`}>
+            Test
+            {publishedUrls.test && <CheckIcon className="w-3 h-3 inline ml-1 text-emerald-400" />}
+          </button>
+          <button onClick={() => setEnv("prod")}
+            className={`flex-1 px-3 py-1.5 text-[11px] font-semibold transition-colors ${env === "prod" ? "bg-red-500/20 text-red-400" : "bg-white/5 text-white/40 hover:text-white/60"}`}>
+            Production
+            {publishedUrls.prod && <CheckIcon className="w-3 h-3 inline ml-1 text-emerald-400" />}
+          </button>
+        </div>
+
+        {/* Published links */}
+        {currentPublished && (
           <div className="flex items-center gap-3">
-            <a href={publishedUrl} target="_blank" rel="noopener noreferrer"
+            <a href={currentPublished} target="_blank" rel="noopener noreferrer"
               className="flex items-center gap-2 text-sm font-medium text-emerald-400 hover:underline">
               <CheckIcon className="w-4 h-4" /> View in Notion ↗
             </a>
             <button
-              onClick={() => { navigator.clipboard.writeText(publishedUrl); }}
+              onClick={() => { navigator.clipboard.writeText(currentPublished); }}
               className="flex items-center gap-1.5 text-sm font-medium text-white/60 hover:text-white transition-colors"
               title="Copy URL"
             >
               <ClipboardIcon className="w-4 h-4" /> Copy
             </button>
           </div>
-        ) : (
+        )}
+
+        {/* Also publish to other env */}
+        {currentPublished && !otherPublished && (
+          <button onClick={() => handlePublish(otherEnv)} disabled={publishing}
+            className={`w-full rounded-lg px-3 py-1.5 text-[11px] font-semibold flex items-center justify-center gap-2 transition-colors ${otherEnv === "prod" ? "bg-red-500/10 text-red-400 hover:bg-red-500/20 border border-red-500/20" : "bg-amber-500/10 text-amber-400 hover:bg-amber-500/20 border border-amber-500/20"} disabled:opacity-40`}>
+            {publishing ? <LoaderIcon className="w-3 h-3" /> : <NotionIcon className="w-3 h-3" />}
+            Also publish to {otherEnv === "prod" ? "Production" : "Test"}
+          </button>
+        )}
+
+        {!currentPublished && (
           <>
             {/* Tag */}
             <div>
@@ -504,10 +548,10 @@ export const NotionInputNode = memo(function NotionInputNode({ data }: NodeProps
 
             {error && <p className="text-[10px] text-red-400">{error}</p>}
 
-            <button onClick={handlePublish} disabled={publishing || bannerUploading}
-              className="w-full rounded-lg bg-black px-4 py-2 text-sm font-semibold text-white hover:bg-white/10 disabled:opacity-40 flex items-center justify-center gap-2 transition-colors">
+            <button onClick={() => handlePublish()} disabled={publishing || bannerUploading}
+              className={`w-full rounded-lg px-4 py-2 text-sm font-semibold flex items-center justify-center gap-2 transition-colors disabled:opacity-40 ${env === "prod" ? "bg-red-500/20 text-red-300 hover:bg-red-500/30 border border-red-500/30" : "bg-black text-white hover:bg-white/10"}`}>
               {publishing ? <LoaderIcon className="w-4 h-4" /> : <NotionIcon className="w-4 h-4" />}
-              {publishing ? "Publishing..." : bannerUploading ? "Uploading banner..." : "Publish to Notion"}
+              {publishing ? "Publishing..." : bannerUploading ? "Uploading banner..." : `Publish to ${env === "prod" ? "Production" : "Test"}`}
             </button>
           </>
         )}
@@ -698,7 +742,6 @@ export const RefineChatNode = memo(function RefineChatNode({ data }: NodeProps) 
 /* ── Node type registry ── */
 export const flowNodeTypes = {
   jiraInput: JiraInputNode,
-  githubInput: GitHubInputNode,
   generateInput: GenerateInputNode,
   loading: LoadingNode,
   result: ResultNode,

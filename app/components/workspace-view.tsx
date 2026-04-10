@@ -41,7 +41,7 @@ function getDefaults(): Record<number, PanelRect> {
 }
 
 interface Props {
-  panels: [PanelConfig, PanelConfig, PanelConfig];
+  panels: PanelConfig[];
   onResetView: () => void;
 }
 

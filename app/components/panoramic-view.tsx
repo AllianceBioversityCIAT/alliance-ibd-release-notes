@@ -16,7 +16,7 @@ interface PanelConfig {
 interface Props {
   activeStep: number;
   particleState: ParticleState;
-  panels: [PanelConfig, PanelConfig, PanelConfig];
+  panels: PanelConfig[];
   onStepChange: (step: number) => void;
 }
 

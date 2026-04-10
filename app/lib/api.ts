@@ -1,4 +1,4 @@
-import type { JiraResponse, CommitsResponse, GenerateResponse, NotionPublishResult } from "./types";
+import type { JiraResponse, NotionPublishResult } from "./types";
 
 async function post<T>(url: string, body: Record<string, unknown>): Promise<T> {
   const res = await fetch(url, {
@@ -17,29 +17,7 @@ export function fetchJiraContext(issueKeys: string[]) {
   return post<JiraResponse>("/api/release-notes/jira", { issue_keys: issueKeys });
 }
 
-export function fetchCommits(params: {
-  owner: string;
-  repo: string;
-  branch: string;
-  jira_ticket: string;
-}) {
-  return post<CommitsResponse>("/api/release-notes/commits", params);
-}
-
-export function generateReleaseNote(params: {
-  owner: string;
-  repo: string;
-  branch: string;
-  jira_tickets: string[];
-  media: { url: string; ai_context: string }[];
-}) {
-  return post<GenerateResponse>("/api/release-notes/generate", params);
-}
-
 export async function* streamReleaseNote(params: {
-  owner: string;
-  repo: string;
-  branch: string;
   jira_tickets: string[];
   jira_context?: string;
   media: { url: string; ai_context: string }[];
@@ -140,8 +118,8 @@ export async function* streamRefineNote(params: {
   }
 }
 
-export async function getNotionOptions(): Promise<{ tags: string[]; projects: string[] }> {
-  const r = await fetch("/api/release-notes/notion");
+export async function getNotionOptions(env: "test" | "prod" = "test"): Promise<{ tags: string[]; projects: string[] }> {
+  const r = await fetch(`/api/release-notes/notion?env=${env}`);
   return r.json();
 }
 
@@ -153,8 +131,22 @@ export function publishToNotion(params: {
   released_date: string;
   markdown: string;
   cover_url?: string;
+  notion_env?: "test" | "prod";
 }) {
   return post<NotionPublishResult>("/api/release-notes/notion", params);
+}
+
+/** Convert Jira attachment URLs to S3 URLs (download from Jira, upload to S3). */
+export async function convertJiraImagesToS3(jiraUrls: string[]): Promise<Record<string, string>> {
+  if (!jiraUrls.length) return {};
+  const res = await fetch("/api/release-notes/jira-to-s3", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ urls: jiraUrls }),
+  });
+  if (!res.ok) return {};
+  const data = await res.json();
+  return data.mappings || {};
 }
 
 /** Upload a single file to S3 via n8n. Returns the S3 Location URL. */

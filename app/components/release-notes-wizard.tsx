@@ -1,14 +1,12 @@
 "use client";
 
 import { useState, useCallback } from "react";
-import { DEFAULTS } from "@/app/lib/constants";
 import type { LocalMediaItem } from "@/app/lib/types";
-import { fetchJiraContext, fetchCommits, generateReleaseNote, uploadFilesSequentially } from "@/app/lib/api";
+import { fetchJiraContext, uploadFilesSequentially } from "@/app/lib/api";
 import { saveNote } from "@/app/lib/history";
 import { StepIndicator } from "./step-indicator";
 import { StepCard } from "./step-card";
 import { JiraStep } from "./jira-step";
-import { GitHubStep } from "./github-step";
 import { GenerateStep } from "./generate-step";
 import { HistoryPanel } from "./history-panel";
 import { HistoryIcon } from "./icons";
@@ -16,9 +14,6 @@ import { HistoryIcon } from "./icons";
 export function ReleaseNotesWizard() {
   // Form state
   const [issueKeys, setIssueKeys] = useState<string[]>([""]);
-  const [owner, setOwner] = useState<string>(DEFAULTS.owner);
-  const [repo, setRepo] = useState<string>(DEFAULTS.repo);
-  const [branch, setBranch] = useState<string>(DEFAULTS.branch);
 
   // Media (local files, not yet uploaded)
   const [media, setMedia] = useState<LocalMediaItem[]>([]);
@@ -29,11 +24,6 @@ export function ReleaseNotesWizard() {
   const [jiraResult, setJiraResult] = useState<string | null>(null);
 
   // Step 2
-  const [commitsLoading, setCommitsLoading] = useState(false);
-  const [commitsError, setCommitsError] = useState<string | null>(null);
-  const [commitsResult, setCommitsResult] = useState<string | null>(null);
-
-  // Step 3
   const [generateLoading, setGenerateLoading] = useState(false);
   const [generateError, setGenerateError] = useState<string | null>(null);
   const [generateResult, setGenerateResult] = useState<string | null>(null);
@@ -44,17 +34,14 @@ export function ReleaseNotesWizard() {
   // Derived
   const completedSteps = new Set<number>();
   if (jiraResult) completedSteps.add(1);
-  if (commitsResult) completedSteps.add(2);
-  if (generateResult) completedSteps.add(3);
+  if (generateResult) completedSteps.add(2);
 
-  const currentStep = generateResult ? 3 : commitsResult ? 3 : jiraResult ? 2 : 1;
+  const currentStep = generateResult ? 2 : jiraResult ? 2 : 1;
 
   const handleFetchJira = useCallback(async () => {
     const validKeys = issueKeys.filter((k) => k.trim());
     setJiraLoading(true);
     setJiraError(null);
-    setCommitsResult(null);
-    setCommitsError(null);
     setGenerateResult(null);
     setGenerateError(null);
     try {
@@ -67,65 +54,37 @@ export function ReleaseNotesWizard() {
     }
   }, [issueKeys]);
 
-  const handleFetchCommits = useCallback(async () => {
-    setCommitsLoading(true);
-    setCommitsError(null);
-    setGenerateResult(null);
-    setGenerateError(null);
-    try {
-      const data = await fetchCommits({
-        owner,
-        repo,
-        branch,
-        jira_ticket: issueKeys[0]?.trim() ?? "",
-      });
-      setCommitsResult(data.release_notes_input);
-    } catch (e) {
-      setCommitsError(e instanceof Error ? e.message : "Failed to fetch commits");
-    } finally {
-      setCommitsLoading(false);
-    }
-  }, [owner, repo, branch, issueKeys]);
-
   const handleGenerate = useCallback(async () => {
     setGenerateLoading(true);
     setGenerateError(null);
     setGenerateResult(null);
     try {
-      // 1. Upload files to S3 sequentially
       const files = media.map((m) => m.file);
       const urls = files.length > 0 ? await uploadFilesSequentially(files) : [];
-
-      // 2. Build media array with S3 URLs + AI context
       const mediaPayload = urls.map((url, i) => ({
         url,
         ai_context: media[i]?.ai_context || "",
       }));
 
-      // 3. Generate release note
       const validKeys = issueKeys.filter((k) => k.trim());
       const primaryKey = validKeys[0] ?? "";
-      const data = await generateReleaseNote({
-        owner,
-        repo,
-        branch,
-        jira_tickets: validKeys,
-        media: mediaPayload,
+
+      const res = await fetch("/api/release-notes/generate", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ jira_tickets: validKeys, media: mediaPayload }),
       });
+      const data = await res.json();
       setGenerateResult(data.output);
 
-      const firstHeading = data.output.match(/^#\s+(.+)$/m)?.[1] || primaryKey;
-      saveNote({
-        jiraKey: primaryKey,
-        title: firstHeading,
-        markdown: data.output,
-      });
+      const firstHeading = data.output?.match(/^#\s+(.+)$/m)?.[1] || primaryKey;
+      saveNote({ jiraKey: primaryKey, title: firstHeading, markdown: data.output });
     } catch (e) {
       setGenerateError(e instanceof Error ? e.message : "Failed to generate release note");
     } finally {
       setGenerateLoading(false);
     }
-  }, [owner, repo, branch, issueKeys, media]);
+  }, [issueKeys, media]);
 
   return (
     <>
@@ -160,32 +119,10 @@ export function ReleaseNotesWizard() {
         </StepCard>
 
         <StepCard
-          title="GitHub Commits"
-          description="Gather commit history filtered by Jira ticket"
+          title="Generate Release Note"
+          description="AI-powered blog post from Jira data"
           stepNumber={2}
           isActive={!!jiraResult}
-          isCompleted={!!commitsResult}
-        >
-          <GitHubStep
-            owner={owner}
-            repo={repo}
-            branch={branch}
-            jiraTicket={issueKeys[0] ?? ""}
-            onOwnerChange={setOwner}
-            onRepoChange={setRepo}
-            onBranchChange={setBranch}
-            onFetch={handleFetchCommits}
-            loading={commitsLoading}
-            error={commitsError}
-            result={commitsResult}
-          />
-        </StepCard>
-
-        <StepCard
-          title="Generate Release Note"
-          description="AI-powered blog post from Jira and GitHub data"
-          stepNumber={3}
-          isActive={!!commitsResult}
           isCompleted={!!generateResult}
         >
           <GenerateStep
