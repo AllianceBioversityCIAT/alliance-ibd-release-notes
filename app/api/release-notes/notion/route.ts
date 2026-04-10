@@ -2,8 +2,16 @@ import { NextRequest, NextResponse } from "next/server";
 
 const NOTION_VER = "2022-06-28";
 
+type NotionEnv = "test" | "prod";
+
 function auth() {
   return `Bearer ${process.env.NOTION_API_KEY}`;
+}
+
+function getDbId(env: NotionEnv = "test"): string | undefined {
+  return env === "prod"
+    ? process.env.NOTION_DATABASE_ID_PROD
+    : process.env.NOTION_DATABASE_ID_TEST;
 }
 
 async function notionFetch(path: string, method = "GET", body?: unknown) {
@@ -29,7 +37,6 @@ type Block = Record<string, unknown>;
 
 function parseInline(text: string): RT[] {
   const tokens: RT[] = [];
-  // Order matters: bold before italic, links before plain text
   const re = /(\*\*(.+?)\*\*|\*([^*\n]+)\*|_([^_\n]+)_|`([^`\n]+)`|~~([^~\n]+)~~|\[([^\]]+)\]\(([^)]+)\))/g;
   let last = 0;
   let m: RegExpExecArray | null;
@@ -41,7 +48,6 @@ function parseInline(text: string): RT[] {
     else if (m[5]) tokens.push({ type: "text", text: { content: m[5] }, annotations: { code: true } });
     else if (m[6]) tokens.push({ type: "text", text: { content: m[6] }, annotations: { strikethrough: true } });
     else if (m[7] && m[8]) {
-      // Markdown link [text](url)
       tokens.push({ type: "text", text: { content: m[7], link: { url: m[8] } } } as unknown as RT);
     }
     last = m.index + m[0].length;
@@ -56,14 +62,12 @@ function blk(type: string, rt: RT[]): Block {
 
 function markdownToBlocks(md: string): Block[] {
   const blocks: Block[] = [];
-  // Match markdown images: ![alt](url)
   const imgRe = /^!\[([^\]]*)\]\(([^)]+)\)$/;
 
   for (const raw of md.split("\n")) {
     const t = raw.trimEnd();
     if (!t) continue;
 
-    // Image on its own line → Notion image block
     const imgMatch = t.match(imgRe);
     if (imgMatch) {
       blocks.push({
@@ -88,9 +92,10 @@ function markdownToBlocks(md: string): Block[] {
 }
 
 /* ─── GET — return available Tags & Projects ─────── */
-export async function GET() {
-  const dbId = process.env.NOTION_DATABASE_ID;
-  if (!dbId) return NextResponse.json({ error: "NOTION_DATABASE_ID not set" }, { status: 500 });
+export async function GET(req: NextRequest) {
+  const env = (req.nextUrl.searchParams.get("env") as NotionEnv) || "test";
+  const dbId = getDbId(env);
+  if (!dbId) return NextResponse.json({ error: `NOTION_DATABASE_ID_${env.toUpperCase()} not set` }, { status: 500 });
 
   const data = await notionFetch(`/databases/${dbId}`);
   const tags: string[] = data.properties?.Tags?.select?.options?.map((o: { name: string }) => o.name) ?? [];
@@ -100,11 +105,8 @@ export async function GET() {
 
 /* ─── POST — publish release note ───────────────── */
 export async function POST(req: NextRequest) {
-  const dbId = process.env.NOTION_DATABASE_ID;
-  if (!dbId) return NextResponse.json({ error: "NOTION_DATABASE_ID not set" }, { status: 500 });
-
   try {
-    const { title, brief_description, tag, projects, released_date, markdown, cover_url } =
+    const { title, brief_description, tag, projects, released_date, markdown, cover_url, notion_env } =
       (await req.json()) as {
         title: string;
         brief_description?: string;
@@ -113,7 +115,11 @@ export async function POST(req: NextRequest) {
         released_date?: string;
         markdown: string;
         cover_url?: string;
+        notion_env?: NotionEnv;
       };
+
+    const dbId = getDbId(notion_env || "test");
+    if (!dbId) return NextResponse.json({ error: `NOTION_DATABASE_ID_${(notion_env || "test").toUpperCase()} not set` }, { status: 500 });
 
     const blocks = markdownToBlocks(markdown);
 
@@ -142,7 +148,6 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: page.message }, { status: 400 });
     }
 
-    // Append blocks beyond the first 100
     for (let i = 100; i < blocks.length; i += 100) {
       await notionFetch(`/blocks/${page.id}/children`, "PATCH", {
         children: blocks.slice(i, i + 100),

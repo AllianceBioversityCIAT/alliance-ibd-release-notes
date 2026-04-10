@@ -44,11 +44,15 @@ export interface UploadedMediaItem {
   fileName: string;
 }
 
+
+export type NotionEnv = "test" | "prod";
+
 export interface NotionPublishPayload {
   tag: string;
   projects: string[];
   brief_description: string;
   cover_url?: string;
+  notion_env?: NotionEnv;
 }
 
 export interface NotionPublishResult {
