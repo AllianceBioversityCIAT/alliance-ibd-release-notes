@@ -29,12 +29,18 @@ export async function POST(req: NextRequest) {
   try {
     const { markdown, instruction, media, jira_context } = await req.json();
 
-    if (!markdown || !instruction) {
+    // An instruction is required UNLESS images are attached — in that case we
+    // default to placing the image(s) contextually (image-only refine).
+    if (!markdown || (!instruction && !(media?.length))) {
       return NextResponse.json(
-        { error: "markdown and instruction are required" },
+        { error: "markdown and either an instruction or at least one image are required" },
         { status: 400 }
       );
     }
+
+    const effectiveInstruction =
+      instruction?.trim() ||
+      "Integrate the attached image(s) into the release note where they fit best based on the existing content and Jira context.";
 
     let mediaSection = "";
     if (media?.length > 0) {
@@ -51,7 +57,7 @@ export async function POST(req: NextRequest) {
 
     const userPrompt =
       `## Current release note\n\`\`\`markdown\n${markdown}\n\`\`\`\n\n` +
-      `## Instruction\n${instruction}` +
+      `## Instruction\n${effectiveInstruction}` +
       mediaSection +
       (jira_context ? `\n\n## Jira context (for reference)\n${jira_context}` : "");
 

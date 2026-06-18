@@ -618,8 +618,13 @@ export const RefineChatNode = memo(function RefineChatNode({ data }: NodeProps) 
   function handleSend() {
     const text = instruction.trim();
     if (!text && files.length === 0) return;
+    // Image-only refine: send a default instruction so the endpoint (which
+    // requires a non-empty instruction) can place the attached image(s).
+    const effectiveInstruction =
+      text ||
+      "Integrate the attached image(s) into the release note where they fit best based on the existing content and Jira context.";
     setHistory((h) => [...h, { instruction: text || "(images attached)", mediaCount: files.length, status: "applying" }]);
-    onRefine(text, files);
+    onRefine(effectiveInstruction, files);
     setInstruction("");
     setFiles([]);
     previews.forEach((p) => URL.revokeObjectURL(p));
