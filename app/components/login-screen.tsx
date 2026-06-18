@@ -49,6 +49,9 @@ export function LoginScreen({ onLogin }: { onLogin: () => void }) {
             </div>
             <h1 className="text-xl font-semibold text-slate-900">Release Notes</h1>
             <p className="text-sm text-slate-500 mt-1">Sign in to continue</p>
+            <span className="inline-block mt-2 px-2 py-0.5 rounded-full bg-accent/10 text-accent text-xs font-medium">
+              v2.0.0
+            </span>
           </div>
 
           <form onSubmit={handleSubmit} className="space-y-4">
