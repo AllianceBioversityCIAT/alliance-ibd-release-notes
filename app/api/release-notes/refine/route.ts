@@ -44,15 +44,19 @@ export async function POST(req: NextRequest) {
 
     let mediaSection = "";
     if (media?.length > 0) {
+      // Use short placeholders ([[IMG_n]]) instead of the long pre-signed S3
+      // URLs; the client resolves them to the real URLs after streaming.
       const lines = (media as Array<{ url: string; ai_context: string }>).map(
         (m, i) => {
           const ctx = m.ai_context?.trim();
+          const token = `[[IMG_${i + 1}]]`;
           return ctx
-            ? `Image ${i + 1}: ${m.url}\n  Context: ${ctx}`
-            : `Image ${i + 1}: ${m.url}`;
+            ? `Image ${i + 1} (use exactly ${token} as the image URL): ${ctx}`
+            : `Image ${i + 1} (use exactly ${token} as the image URL)`;
         }
       );
-      mediaSection = `\n\n## New images to integrate\n${lines.join("\n\n")}`;
+      mediaSection =
+        `\n\n## New images to integrate\nUse these EXACT placeholder tokens as the image URLs — write \`![description]([[IMG_1]])\`:\n${lines.join("\n\n")}`;
     }
 
     const userPrompt =

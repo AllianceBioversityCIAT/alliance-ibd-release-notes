@@ -145,23 +145,34 @@ Write a balanced release note following the full structure:
     // Cap output length so generation completes within Amplify's ~30s SSR Lambda
     // budget (Amplify buffers the SSE response, so total time — not TTFB — matters).
     const maxTokensByType: Record<string, number> = {
-      detailed: 1100,
-      standard: 1000,
-      brief: 700,
+      detailed: 1300,
+      standard: 1200,
+      brief: 800,
     };
     const max_tokens = maxTokensByType[note_type as string] ?? maxTokensByType.standard;
 
     let mediaSection = "No media provided.";
     if (media?.length > 0) {
+      // Pass a short placeholder ([[IMG_n]]) instead of the long pre-signed S3
+      // URL. The model echoes the placeholder into the markdown and the client
+      // swaps it for the real URL — this keeps giant URLs out of the token
+      // budget so images are never truncated.
       const lines = (media as Array<{ url: string; ai_context: string }>).map(
         (m, i) => {
           const ctx = m.ai_context?.trim();
+          const token = `[[IMG_${i + 1}]]`;
           return ctx
-            ? `Image ${i + 1}: ${m.url}\n  Context: ${ctx}`
-            : `Image ${i + 1}: ${m.url}\n  Context: (none — infer from Jira context)`;
+            ? `Image ${i + 1} (use exactly ${token} as the image URL): ${ctx}`
+            : `Image ${i + 1} (use exactly ${token} as the image URL): (none — infer from Jira context)`;
         }
       );
-      mediaSection = lines.join("\n\n");
+      mediaSection =
+        `You MUST place EVERY one of the following images in the note — never omit any. ` +
+        `Write each image as standard markdown with the token INSIDE the parentheses, exactly like: \`![Screenshot]([[IMG_1]])\`. ` +
+        `Do NOT write \`![[IMG_1]]\`, do NOT invent real URLs, and put the token only inside \`( )\`.\n` +
+        `For images clearly related to a Jira change, place them inline in the relevant section with a contextual alt text. ` +
+        `For images without a clear relation, STILL include them at the end under a "### Screenshots" heading as \`![Screenshot]([[IMG_n]])\`. Every [[IMG_n]] token must appear exactly once.\n\n` +
+        lines.join("\n\n");
     }
 
     const userPrompt =

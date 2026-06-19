@@ -17,6 +17,49 @@ export function fetchJiraContext(issueKeys: string[]) {
   return post<JiraResponse>("/api/release-notes/jira", { issue_keys: issueKeys });
 }
 
+/**
+ * The server sends the model short `[[IMG_n]]` placeholders instead of the long
+ * pre-signed S3 URLs (so giant URLs don't eat the token budget and truncate
+ * images). This resolves those placeholders back to the real media URLs as the
+ * stream arrives, buffering any token that is split across chunk boundaries.
+ */
+function makePlaceholderResolver(media?: { url: string }[]) {
+  const urls = media?.map((m) => m.url) ?? [];
+  // Matches a trailing fragment that could be the start of a token (incl. a
+  // leading `!` for the malformed `![[IMG_n]]` shape the model sometimes emits).
+  const partialTail = /!?\[\[?(?:I(?:M(?:G(?:_\d*)?)?)?)?\]?$/;
+  const resolveAll = (s: string) =>
+    s
+      // Malformed image the model sometimes writes (`![[IMG_n]]`) → full image markdown.
+      .replace(/!\[\[IMG_(\d+)\]\]/g, (m, n) =>
+        urls[Number(n) - 1] ? `![Screenshot](${urls[Number(n) - 1]})` : m
+      )
+      // Well-formed token (inside `![alt]([[IMG_n]])` or standalone) → real URL.
+      .replace(/\[\[IMG_(\d+)\]\]/g, (m, n) => urls[Number(n) - 1] ?? m);
+  let tail = "";
+  return {
+    push(chunk: string): string {
+      const buf = resolveAll(tail + chunk);
+      const m = buf.match(partialTail);
+      if (m && m.index !== undefined && m.index > 0) {
+        tail = buf.slice(m.index);
+        return buf.slice(0, m.index);
+      }
+      if (m && m.index === 0) {
+        tail = buf;
+        return "";
+      }
+      tail = "";
+      return buf;
+    },
+    flush(): string {
+      const out = resolveAll(tail);
+      tail = "";
+      return out;
+    },
+  };
+}
+
 export async function* streamReleaseNote(params: {
   jira_tickets: string[];
   jira_context?: string;
@@ -39,6 +82,7 @@ export async function* streamReleaseNote(params: {
 
   const reader = res.body!.getReader();
   const decoder = new TextDecoder();
+  const resolver = makePlaceholderResolver(params.media);
   let buffer = "";
 
   try {
@@ -52,17 +96,26 @@ export async function* streamReleaseNote(params: {
         const trimmed = line.trim();
         if (!trimmed.startsWith("data:")) continue;
         const payload = trimmed.slice(5).trim();
-        if (payload === "[DONE]") return;
+        if (payload === "[DONE]") {
+          const last = resolver.flush();
+          if (last) yield last;
+          return;
+        }
         try {
           const parsed = JSON.parse(payload);
           if (parsed.error) throw new Error(parsed.error.message ?? "OpenAI stream error");
           const content: string = parsed.choices?.[0]?.delta?.content ?? "";
-          if (content) yield content;
+          if (content) {
+            const out = resolver.push(content);
+            if (out) yield out;
+          }
         } catch (e) {
           if (e instanceof Error && e.message.includes("OpenAI")) throw e;
         }
       }
     }
+    const last = resolver.flush();
+    if (last) yield last;
   } finally {
     reader.releaseLock();
   }
@@ -89,6 +142,7 @@ export async function* streamRefineNote(params: {
 
   const reader = res.body!.getReader();
   const decoder = new TextDecoder();
+  const resolver = makePlaceholderResolver(params.media);
   let buffer = "";
 
   try {
@@ -102,17 +156,26 @@ export async function* streamRefineNote(params: {
         const trimmed = line.trim();
         if (!trimmed.startsWith("data:")) continue;
         const payload = trimmed.slice(5).trim();
-        if (payload === "[DONE]") return;
+        if (payload === "[DONE]") {
+          const last = resolver.flush();
+          if (last) yield last;
+          return;
+        }
         try {
           const parsed = JSON.parse(payload);
           if (parsed.error) throw new Error(parsed.error.message ?? "OpenAI stream error");
           const content: string = parsed.choices?.[0]?.delta?.content ?? "";
-          if (content) yield content;
+          if (content) {
+            const out = resolver.push(content);
+            if (out) yield out;
+          }
         } catch (e) {
           if (e instanceof Error && e.message.includes("OpenAI")) throw e;
         }
       }
     }
+    const last = resolver.flush();
+    if (last) yield last;
   } finally {
     reader.releaseLock();
   }
