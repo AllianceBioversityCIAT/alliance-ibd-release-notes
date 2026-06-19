@@ -144,10 +144,14 @@ Write a balanced release note following the full structure:
 
     // Cap output length so generation completes within Amplify's ~30s SSR Lambda
     // budget (Amplify buffers the SSE response, so total time — not TTFB — matters).
+    // OpenAI throughput varies ~2x; the worst case must fit Amplify's 30s limit
+    // even on a slow day. Placeholders keep image markdown cheap, so a lower cap
+    // still renders every image — it only trims trailing content in the extreme
+    // (two very large tickets) case.
     const maxTokensByType: Record<string, number> = {
-      detailed: 1300,
-      standard: 1200,
-      brief: 800,
+      detailed: 1000,
+      standard: 950,
+      brief: 700,
     };
     const max_tokens = maxTokensByType[note_type as string] ?? maxTokensByType.standard;
 
