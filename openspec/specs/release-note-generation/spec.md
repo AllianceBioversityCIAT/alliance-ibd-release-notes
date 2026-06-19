@@ -39,3 +39,29 @@ The `/api/release-notes/refine` endpoint SHALL apply the same `max_tokens` cap a
 
 - **WHEN** a refine request is made against a long existing note
 - **THEN** the refine completion is bounded by `max_tokens` and finishes within the budget
+
+### Requirement: Media URLs passed as short placeholders
+
+The `generate` and `refine` endpoints SHALL represent each media item to the model as a short placeholder token `[[IMG_n]]` (1-indexed) rather than its full pre-signed URL, instruct the model to use that token as the markdown image URL, and require every image to be placed inline early (not in a trailing section) so images survive content truncation.
+
+#### Scenario: Note with several images
+
+- **WHEN** a note is generated with N media items
+- **THEN** the prompt lists each as a `[[IMG_n]]` token
+- **AND** no full S3 URL is sent to the model
+- **AND** each image is placed inline in its relevant section
+
+### Requirement: Client resolves placeholders to real URLs
+
+The client streaming functions SHALL replace every `[[IMG_n]]` token in the streamed output with the corresponding `media[n-1]` URL, including tokens that span chunk boundaries and the malformed `![[IMG_n]]` shape, before the text is rendered or saved.
+
+#### Scenario: Placeholder split across stream chunks
+
+- **WHEN** a `[[IMG_n]]` token is split across two SSE chunks
+- **THEN** the client buffers the partial token and resolves it once complete
+- **AND** no raw `[[IMG_n]]` token appears in the final rendered note
+
+#### Scenario: Unknown placeholder index
+
+- **WHEN** the model emits `[[IMG_n]]` with no matching media item
+- **THEN** the client leaves the token unchanged and does not error
