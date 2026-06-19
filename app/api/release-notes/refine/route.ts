@@ -70,6 +70,8 @@ export async function POST(req: NextRequest) {
       body: JSON.stringify({
         model: "gpt-4.1-mini",
         stream: true,
+        // Bound output so refine completes within Amplify's ~30s SSR Lambda budget.
+        max_tokens: 1800,
         messages: [
           { role: "system", content: SYSTEM_MESSAGE },
           { role: "user", content: userPrompt },

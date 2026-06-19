@@ -115,14 +115,16 @@ export async function POST(req: NextRequest) {
     // Note type instructions
     const noteTypeInstructions: Record<string, string> = {
       detailed: `## RELEASE NOTE TYPE: DETAILED / TUTORIAL
-This is a comprehensive release with lots of context. Write an EXTENSIVE, in-depth release note that:
-- Covers EVERY subtask, story, and change individually with its own ## section
-- Explains each feature as a mini-tutorial: what it does, how the user interacts with it, what they should expect
-- Uses step-by-step descriptions where applicable (e.g., "First you'll see..., then you can...")
+This is a comprehensive release. Write a thorough but concise, in-depth release note that:
+- Covers each meaningful subtask, story, and change — group closely related ones together rather than padding
+- Explains each feature briefly as a mini-tutorial: what it does, how the user interacts with it, what they should expect
+- Uses short step-by-step descriptions where they add clarity (e.g., "First you'll see..., then you can...")
 - Includes specific UI element references (buttons, fields, screens, modals, navigation paths)
-- Provides context about WHY each change matters to the user's workflow
-- Should be AT LEAST 2000+ words for complex features — do NOT summarize or condense
-- Still follow the full structure: Title → Summary → Key improvements → Detailed sections → Access and Permissions → Contributors`,
+- Provides brief context about WHY each change matters to the user's workflow
+- Stays tight and useful — be complete without repeating yourself or adding filler
+- HARD LIMIT: keep the ENTIRE note under 550 words. This is a strict ceiling, not a target.
+- It is CRITICAL that you finish the full structure end to end, including the Contributors line at the very end. A short, COMPLETE note is far better than a long one that gets cut off. If you are running long, compress earlier sections — never stop mid-sentence or omit the ending.
+- Follows the full structure: Title → Summary → Key improvements → Detailed sections → Access and Permissions → Contributors`,
       brief: `## RELEASE NOTE TYPE: BRIEF / PATCH
 This is a small, focused change. Write a SHORT, concise release note:
 - 2-4 paragraphs maximum
@@ -139,6 +141,15 @@ Write a balanced release note following the full structure:
     };
 
     const typeInstruction = noteTypeInstructions[note_type as string] ?? noteTypeInstructions.standard;
+
+    // Cap output length so generation completes within Amplify's ~30s SSR Lambda
+    // budget (Amplify buffers the SSE response, so total time — not TTFB — matters).
+    const maxTokensByType: Record<string, number> = {
+      detailed: 1400,
+      standard: 1300,
+      brief: 750,
+    };
+    const max_tokens = maxTokensByType[note_type as string] ?? maxTokensByType.standard;
 
     let mediaSection = "No media provided.";
     if (media?.length > 0) {
@@ -160,7 +171,8 @@ Write a balanced release note following the full structure:
       `Jira Reporter(s): ${reporters.join(", ")}\n\n` +
       `## Media\n${mediaSection}` +
       (general_context ? `\n\n## General context about the media (provided by the author):\n${general_context}` : "") +
-      `\n\nRemember: Interpret each image through the Jira context above. If an image has specific context from the author, use it. If not, use the Jira tickets to understand what the image shows.`;
+      `\n\nRemember: Interpret each image through the Jira context above. If an image has specific context from the author, use it. If not, use the Jira tickets to understand what the image shows.` +
+      `\n\nFINAL REMINDER: Be concise and COMPLETE the entire note — title through the Contributors line at the end. Do not get cut off. A complete, shorter note is required over a long, truncated one.`;
 
     const openaiRes = await fetch("https://api.openai.com/v1/chat/completions", {
       method: "POST",
@@ -171,6 +183,7 @@ Write a balanced release note following the full structure:
       body: JSON.stringify({
         model: "gpt-4.1-mini",
         stream: true,
+        max_tokens,
         messages: [
           { role: "system", content: SYSTEM_MESSAGE },
           { role: "user", content: userPrompt },
