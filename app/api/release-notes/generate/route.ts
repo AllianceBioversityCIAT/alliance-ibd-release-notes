@@ -171,11 +171,10 @@ Write a balanced release note following the full structure:
         }
       );
       mediaSection =
-        `You MUST place EVERY one of the following images in the note — never omit any. ` +
+        `You MUST place EVERY one of the following images in the note — never omit any, and place them EARLY: put each image inline in its relevant section as soon as that topic appears, NOT in a Screenshots section at the end. ` +
         `Write each image as standard markdown with the token INSIDE the parentheses, exactly like: \`![Screenshot]([[IMG_1]])\`. ` +
         `Do NOT write \`![[IMG_1]]\`, do NOT invent real URLs, and put the token only inside \`( )\`.\n` +
-        `For images clearly related to a Jira change, place them inline in the relevant section with a contextual alt text. ` +
-        `For images without a clear relation, STILL include them at the end under a "### Screenshots" heading as \`![Screenshot]([[IMG_n]])\`. Every [[IMG_n]] token must appear exactly once.\n\n` +
+        `Use the author's general context (below) and the Jira context to decide where each image belongs. Every [[IMG_n]] token must appear exactly once.\n\n` +
         lines.join("\n\n");
     }
 
