@@ -122,7 +122,7 @@ This is a comprehensive release. Write a thorough but concise, in-depth release 
 - Includes specific UI element references (buttons, fields, screens, modals, navigation paths)
 - Provides brief context about WHY each change matters to the user's workflow
 - Stays tight and useful — be complete without repeating yourself or adding filler
-- HARD LIMIT: keep the ENTIRE note under 550 words. This is a strict ceiling, not a target.
+- HARD LIMIT: keep the ENTIRE note under 450 words. This is a strict ceiling, not a target.
 - It is CRITICAL that you finish the full structure end to end, including the Contributors line at the very end. A short, COMPLETE note is far better than a long one that gets cut off. If you are running long, compress earlier sections — never stop mid-sentence or omit the ending.
 - Follows the full structure: Title → Summary → Key improvements → Detailed sections → Access and Permissions → Contributors`,
       brief: `## RELEASE NOTE TYPE: BRIEF / PATCH
@@ -145,9 +145,9 @@ Write a balanced release note following the full structure:
     // Cap output length so generation completes within Amplify's ~30s SSR Lambda
     // budget (Amplify buffers the SSE response, so total time — not TTFB — matters).
     const maxTokensByType: Record<string, number> = {
-      detailed: 1400,
-      standard: 1300,
-      brief: 750,
+      detailed: 1100,
+      standard: 1000,
+      brief: 700,
     };
     const max_tokens = maxTokensByType[note_type as string] ?? maxTokensByType.standard;
 
