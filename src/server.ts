@@ -8,6 +8,7 @@ import express from 'express';
 import { existsSync } from 'node:fs';
 import { join } from 'node:path';
 import { adminRouter } from './server/admin-api';
+import { imageUploadRouter } from './server/image-upload';
 import { mcpRouter } from './server/mcp';
 import { checkTokenStore } from './server/token-store';
 
@@ -36,6 +37,11 @@ app.use('/api/admin', adminRouter());
  * Remote MCP server (personal token from DynamoDB).
  */
 app.use('/mcp', mcpRouter());
+
+/**
+ * Screenshot uploads to Notion through short-lived signed URLs (issued by the MCP).
+ */
+app.use('/api/images', imageUploadRouter());
 
 /**
  * DynamoDB token store check (read-only).

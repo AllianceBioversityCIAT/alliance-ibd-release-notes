@@ -78,6 +78,15 @@ function markdownToBlocks(md: string): Block[] {
       continue;
     }
 
+    // House style: "💬 text" lines become Notion callouts (announcement, caveats, support contact).
+    if (t.startsWith("💬")) {
+      blocks.push({
+        type: "callout",
+        callout: { rich_text: parseInline(t.replace(/^💬\s*/, "")), icon: { type: "emoji", emoji: "💬" } },
+      });
+      continue;
+    }
+
     if (t.startsWith("#### ")) blocks.push(blk("heading_3", parseInline(t.slice(5))));
     else if (t.startsWith("### ")) blocks.push(blk("heading_3", parseInline(t.slice(4))));
     else if (t.startsWith("## ")) blocks.push(blk("heading_2", parseInline(t.slice(3))));
@@ -109,19 +118,12 @@ const UPLOAD_BATCH = 4;
  * Downloads an image (Jira attachments with the server's Jira auth) and uploads it to
  * Notion, so the page hosts its own copy instead of linking to a URL that needs auth.
  */
-async function uploadImageToNotion(url: string): Promise<string> {
-  // Server-side fetch: only public https hosts (no IPs/localhost → no internal AWS endpoints).
-  const parsed = new URL(url);
-  if (parsed.protocol !== 'https:' || /^[\d.]+$|^\[|^localhost$/i.test(parsed.hostname)) {
-    throw new Error(`Image URL must be a public https URL: ${url}`);
-  }
-  const res = isJiraUrl(url) ? await downloadJiraAttachment(url) : await fetch(url);
-  if (!res.ok) throw new Error(`Image download failed (${res.status}): ${url}`);
-  const contentType = (res.headers.get('content-type') ?? 'image/png').split(';')[0];
-  if (!contentType.startsWith('image/')) throw new Error(`Not an image (${contentType}): ${url}`);
-  const bytes = await res.arrayBuffer();
-  if (bytes.byteLength > MAX_IMAGE_BYTES) throw new Error(`Image larger than 20 MB: ${url}`);
+export const NOTION_UPLOAD_REF = 'notion-upload:';
 
+/** Uploads raw image bytes to Notion and returns the file upload id (attach within 1 hour). */
+export async function uploadBytesToNotion(bytes: ArrayBuffer, contentType: string): Promise<string> {
+  if (!contentType.startsWith('image/')) throw new Error(`Not an image (${contentType})`);
+  if (bytes.byteLength > MAX_IMAGE_BYTES) throw new Error('Image larger than 20 MB');
   const ext = contentType.split('/')[1]?.replace('jpeg', 'jpg') || 'png';
   const filename = `image.${ext}`;
   const created = await notionFetch('/file_uploads', 'POST', { filename, content_type: contentType });
@@ -141,13 +143,27 @@ async function uploadImageToNotion(url: string): Promise<string> {
   return created.id as string;
 }
 
+async function uploadImageToNotion(url: string): Promise<string> {
+  // Server-side fetch: only public https hosts (no IPs/localhost → no internal AWS endpoints).
+  const parsed = new URL(url);
+  if (parsed.protocol !== 'https:' || /^[\d.]+$|^\[|^localhost$/i.test(parsed.hostname)) {
+    throw new Error(`Image URL must be a public https URL: ${url}`);
+  }
+  const res = isJiraUrl(url) ? await downloadJiraAttachment(url) : await fetch(url);
+  if (!res.ok) throw new Error(`Image download failed (${res.status}): ${url}`);
+  const contentType = (res.headers.get('content-type') ?? 'image/png').split(';')[0];
+  return uploadBytesToNotion(await res.arrayBuffer(), contentType);
+}
+
 /** Replaces every external image block by a Notion-hosted upload (fails before creating the page). */
 async function hostImagesInNotion(blocks: Block[]): Promise<number> {
   const images = blocks.filter((b) => b['type'] === 'image') as Array<Record<string, any>>;
   for (let i = 0; i < images.length; i += UPLOAD_BATCH) {
     await Promise.all(
       images.slice(i, i + UPLOAD_BATCH).map(async (b) => {
-        const id = await uploadImageToNotion(b['image'].external.url);
+        const url: string = b['image'].external.url;
+        // Screenshots sent by the client through the upload URL are already in Notion.
+        const id = url.startsWith(NOTION_UPLOAD_REF) ? url.slice(NOTION_UPLOAD_REF.length) : await uploadImageToNotion(url);
         b['image'] = { type: 'file_upload', file_upload: { id } };
       }),
     );
