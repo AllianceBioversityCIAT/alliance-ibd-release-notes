@@ -82,7 +82,9 @@ export async function createToken(owner: string): Promise<{ token: string; recor
       new PutCommand({
         TableName: TABLE,
         Item: { tokenHash: lockKey, current: record.tokenHash },
-        ConditionExpression: lock ? 'current = :old' : 'attribute_not_exists(tokenHash)',
+        // `current` is a DynamoDB reserved word: always go through #cur.
+        ConditionExpression: lock ? '#cur = :old' : 'attribute_not_exists(tokenHash)',
+        ExpressionAttributeNames: lock ? { '#cur': 'current' } : undefined,
         ExpressionAttributeValues: lock ? { ':old': lock.current } : undefined,
       }),
     );
@@ -136,7 +138,8 @@ export async function deleteTokenRecord(tokenHash: string): Promise<boolean> {
         new DeleteCommand({
           TableName: TABLE,
           Key: { tokenHash: ownerLockKey(record.owner) },
-          ConditionExpression: 'current = :h',
+          ConditionExpression: '#cur = :h',
+          ExpressionAttributeNames: { '#cur': 'current' },
           ExpressionAttributeValues: { ':h': tokenHash },
         }),
       );
