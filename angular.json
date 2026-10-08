@@ -6,7 +6,7 @@
   },
   "newProjectRoot": "projects",
   "projects": {
-    "angular": {
+    "ibd-release-notes": {
       "projectType": "application",
       "schematics": {},
       "root": "",
@@ -30,7 +30,7 @@
             "server": "src/main.server.ts",
             "outputMode": "server",
             "security": {
-              "allowedHosts": []
+              "allowedHosts": ["*.amplifyapp.com", "localhost"]
             },
             "ssr": {
               "entry": "src/server.ts"
@@ -64,10 +64,10 @@
           "builder": "@angular/build:dev-server",
           "configurations": {
             "production": {
-              "buildTarget": "angular:build:production"
+              "buildTarget": "ibd-release-notes:build:production"
             },
             "development": {
-              "buildTarget": "angular:build:development"
+              "buildTarget": "ibd-release-notes:build:development"
             }
           },
           "defaultConfiguration": "development"

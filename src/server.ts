@@ -5,9 +5,14 @@ import {
   writeResponseToNodeResponse,
 } from '@angular/ssr/node';
 import express from 'express';
+import { existsSync } from 'node:fs';
 import { join } from 'node:path';
 
-const browserDistFolder = join(import.meta.dirname, '../browser');
+// Amplify bundles browser files next to the server entry (compute/default/browser).
+const bundledBrowserFolder = join(import.meta.dirname, 'browser');
+const browserDistFolder = existsSync(bundledBrowserFolder)
+  ? bundledBrowserFolder
+  : join(import.meta.dirname, '../browser');
 
 const app = express();
 const angularApp = new AngularNodeAppEngine();
@@ -49,10 +54,10 @@ app.use((req, res, next) => {
 
 /**
  * Start the server if this module is the main entry point, or it is ran via PM2.
- * The server listens on the port defined by the `PORT` environment variable, or defaults to 4000.
+ * The server listens on the port defined by the `PORT` environment variable, or defaults to 3000 (Amplify compute port).
  */
 if (isMainModule(import.meta.url) || process.env['pm_id']) {
-  const port = process.env['PORT'] || 4000;
+  const port = process.env['PORT'] || 3000;
   app.listen(port, (error) => {
     if (error) {
       throw error;
