@@ -236,20 +236,50 @@ export async function buildJiraContext(rootKey: string): Promise<{
   return { jira_context: text, reporter, children, raw };
 }
 
+export interface JiraImage {
+  issue: string;
+  filename: string;
+  url: string;
+}
+
+/** Image attachments of the whole tree (Jira-authenticated URLs, uploaded to Notion on publish). */
+function collectImages(node: RawIssueNode, out: JiraImage[] = []): JiraImage[] {
+  for (const a of node.attachments) {
+    if (a.mimeType.startsWith("image/") && a.content) {
+      out.push({ issue: node.key, filename: a.filename, url: a.content });
+    }
+  }
+  for (const child of node.children) collectImages(child, out);
+  return out;
+}
+
+export function isJiraUrl(url: string): boolean {
+  const base = process.env['JIRA_BASE_URL'];
+  return !!base && url.startsWith(base + "/");
+}
+
+/** Downloads a Jira attachment with the server's Jira credentials. */
+export async function downloadJiraAttachment(url: string): Promise<Response> {
+  return fetch(url, { headers: { Authorization: `Basic ${makeAuth()}` } });
+}
+
 export async function buildJiraContextMulti(keys: string[]): Promise<{
   jira_context: string;
   reporters: string[];
+  images: JiraImage[];
 }> {
-  if (keys.length === 0) return { jira_context: "", reporters: [] };
+  if (keys.length === 0) return { jira_context: "", reporters: [], images: [] };
 
   const results = await Promise.allSettled(keys.map((k) => buildJiraContext(k)));
 
   const contexts: string[] = [];
   const reporters: string[] = [];
+  const images: JiraImage[] = [];
 
   for (const result of results) {
     if (result.status === "fulfilled") {
       contexts.push(result.value.jira_context);
+      collectImages(result.value.raw, images);
       if (result.value.reporter && !reporters.includes(result.value.reporter)) {
         reporters.push(result.value.reporter);
       }
@@ -259,6 +289,7 @@ export async function buildJiraContextMulti(keys: string[]): Promise<{
   return {
     jira_context: contexts.join("\n\n---\n\n"),
     reporters,
+    images,
   };
 }
 

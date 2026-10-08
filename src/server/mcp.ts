@@ -28,9 +28,17 @@ function buildServer(caller: TokenRecord): McpServer {
     },
     async ({ issue_keys }) => {
       try {
-        const { jira_context, reporters } = await buildJiraContextMulti(issue_keys);
+        const { jira_context, reporters, images } = await buildJiraContextMulti(issue_keys);
         if (!jira_context) return fail(`No Jira issue could be read for ${issue_keys.join(', ')}`);
-        return text(`${jira_context}\n\nJira Reporter(s): ${reporters.join(', ')}`);
+        const imageList = images.length
+          ? images.map((i) => `- [${i.issue}] ${i.filename}: ${i.url}`).join('\n')
+          : '(none)';
+        return text(
+          `${jira_context}\n\nJira Reporter(s): ${reporters.join(', ')}\n\n` +
+            `## Images attached in Jira\n${imageList}\n\n` +
+            `To use one, put it on its own line as ![short caption](<url above>) in the section it belongs to. ` +
+            `On publish the server uploads it into Notion, so the page hosts the image itself.`,
+        );
       } catch (error) {
         return fail(error);
       }
@@ -69,7 +77,9 @@ function buildServer(caller: TokenRecord): McpServer {
     {
       title: 'Publish release note to Notion',
       description:
-        'Creates the release note page in Notion. env defaults to "test" (Overall Achievements [ TEST ]); use "prod" only when the user explicitly asks to publish for real.',
+        'Creates the release note page in Notion and uploads its images into Notion. ' +
+        'env is REQUIRED and must come from the user: ASK them "test or production?" before calling. ' +
+        '"test" = Overall Achievements [ TEST ], "prod" = the real Overall Achievements.',
       inputSchema: {
         title: z.string().min(1).max(2000),
         markdown: z.string().min(1),
@@ -78,7 +88,7 @@ function buildServer(caller: TokenRecord): McpServer {
         projects: z.array(z.string()).optional(),
         released_date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
         cover_url: z.string().url().optional(),
-        env: z.enum(NOTION_ENVS).default('test'),
+        env: z.enum(NOTION_ENVS),
       },
     },
     async (input) => {
@@ -86,7 +96,7 @@ function buildServer(caller: TokenRecord): McpServer {
         const page = await publishReleaseNote(input);
         if (page.duplicate) return text(`Already published moments ago (not duplicated): ${page.url}`);
         console.log(`[mcp] ${caller.owner} published "${input.title}" to Notion ${input.env}`);
-        return text(`Published to Notion (${input.env}): ${page.url}`);
+        return text(`Published to Notion (${input.env}) with ${page.images} image(s): ${page.url}`);
       } catch (error) {
         return fail(error);
       }
@@ -102,12 +112,13 @@ function buildServer(caller: TokenRecord): McpServer {
       argsSchema: {
         issue_keys: z.string().describe('Jira keys separated by commas, e.g. P2-3824, P2-3880'),
         note_type: z.string().optional().describe('brief | standard | detailed (default standard)'),
-        env: z.string().optional().describe('test | prod (default test)'),
+        env: z.string().optional().describe('test | prod (if empty, Claude asks you)'),
       },
     },
     ({ issue_keys, note_type, env }) => {
       const type = (NOTE_TYPES as readonly string[]).includes(note_type ?? '') ? (note_type as NoteType) : 'standard';
-      const target = env === 'prod' ? 'prod' : 'test';
+      const target = env === 'prod' || env === 'test' ? env : undefined;
+      const where = target ? `env "${target}"` : 'the env the user chooses';
       return {
         messages: [
           {
@@ -119,9 +130,11 @@ function buildServer(caller: TokenRecord): McpServer {
                 `Steps:\n` +
                 `1. Call get_jira_context with those keys and read all of it (children, comments, QA notes).\n` +
                 `2. Write the note yourself in Markdown following the guidelines below exactly. Base every statement on the Jira context; never invent features.\n` +
-                `3. Call get_notion_options (env "${target}") and pick the Tag and Projects that fit.\n` +
-                `4. Show me the title, brief description, tag, projects and the full note, then call publish_release_note with env "${target}"` +
-                (target === 'prod' ? ' ONLY after I confirm.' : '.') +
+                `   Use the Jira images that illustrate a change, each on its own line in its section.\n` +
+                (target ? '' : `3a. ASK me: "Where do I publish it: test or production?" and wait for my answer.\n`) +
+                `3. Call get_notion_options (${where}) and pick the Tag and Projects that fit.\n` +
+                `4. Show me the title, brief description, tag, projects and the full note, then call publish_release_note with ${where}` +
+                (target === 'test' ? '.' : ' ONLY after I confirm.') +
                 `\n5. Reply with the Notion URL.\n\n` +
                 `# Guidelines\n\n${writingGuidelines(type)}`,
             },
