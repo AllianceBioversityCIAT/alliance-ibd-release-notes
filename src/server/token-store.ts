@@ -3,7 +3,7 @@ import { DynamoDBDocumentClient, GetCommand } from '@aws-sdk/lib-dynamodb';
 import { createHash } from 'node:crypto';
 
 // Credentials come from the Amplify compute role (no static keys).
-// Read-only by design: tokens are created by hand in DynamoDB (see /token-generator).
+// Read-only by design: tokens are created only by the owner with scripts/create-token.mjs.
 const TABLE = process.env['TOKENS_TABLE'] || 'ibd-release-notes-tokens';
 const REGION = process.env['TOKENS_REGION'] || 'us-east-1';
 
