@@ -10,6 +10,10 @@ cp -r "$DIST/browser" "$OUT/compute/default/browser"
 cp -r "$DIST/browser" "$OUT/static"
 cp deploy-manifest.json "$OUT/deploy-manifest.json"
 # Amplify env vars only exist at build time; pass the ones the server needs at runtime.
-if [ -n "${ADMIN_TOKEN_HASH:-}" ]; then
-  printf 'ADMIN_TOKEN_HASH=%s\n' "$ADMIN_TOKEN_HASH" > "$OUT/compute/default/.env"
-fi
+RUNTIME_VARS="ADMIN_TOKEN_HASH JIRA_BASE_URL JIRA_EMAIL JIRA_API_TOKEN NOTION_API_KEY NOTION_DATABASE_ID NOTION_DATABASE_ID_TEST NOTION_DATABASE_ID_PROD"
+: > "$OUT/compute/default/.env"
+for name in $RUNTIME_VARS; do
+  if [ -n "${!name:-}" ]; then
+    printf '%s=%s\n' "$name" "${!name}" >> "$OUT/compute/default/.env"
+  fi
+done

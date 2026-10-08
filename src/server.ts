@@ -8,6 +8,7 @@ import express from 'express';
 import { existsSync } from 'node:fs';
 import { join } from 'node:path';
 import { adminRouter } from './server/admin-api';
+import { mcpRouter } from './server/mcp';
 import { checkTokenStore } from './server/token-store';
 
 // Amplify compute does not receive console env vars at runtime: the build writes them
@@ -30,6 +31,11 @@ const angularApp = new AngularNodeAppEngine();
  * Token CRUD, protected by the admin token (Authorization: Bearer).
  */
 app.use('/api/admin', adminRouter());
+
+/**
+ * Remote MCP server (personal token from DynamoDB).
+ */
+app.use('/mcp', mcpRouter());
 
 /**
  * DynamoDB token store check (read-only).
