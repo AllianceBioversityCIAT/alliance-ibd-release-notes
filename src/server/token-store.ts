@@ -119,17 +119,32 @@ export async function setTokenActive(tokenHash: string, active: boolean): Promis
   }
 }
 
-/** Returns false when the hash does not exist. */
+/** Returns false when the hash does not exist. Also frees the owner lock if it points here. */
 export async function deleteTokenRecord(tokenHash: string): Promise<boolean> {
+  const record = await getTokenRecord(tokenHash);
   try {
     await db.send(
       new DeleteCommand({ TableName: TABLE, Key: { tokenHash }, ConditionExpression: 'attribute_exists(tokenHash)' }),
     );
-    return true;
   } catch (error) {
     if ((error as Error).name === 'ConditionalCheckFailedException') return false;
     throw error;
   }
+  if (record?.owner) {
+    try {
+      await db.send(
+        new DeleteCommand({
+          TableName: TABLE,
+          Key: { tokenHash: ownerLockKey(record.owner) },
+          ConditionExpression: 'current = :h',
+          ExpressionAttributeValues: { ':h': tokenHash },
+        }),
+      );
+    } catch (error) {
+      if ((error as Error).name !== 'ConditionalCheckFailedException') throw error;
+    }
+  }
+  return true;
 }
 
 const HEALTH_KEY = '__healthcheck__';
