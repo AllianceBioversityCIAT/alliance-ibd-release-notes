@@ -1,0 +1,184 @@
+:host {
+  --bg: #cbd9dc;
+  --teal: #2dd4bf;
+  display: block;
+  position: fixed;
+  inset: 0;
+  overflow: hidden;
+  background: var(--bg);
+}
+
+/* Stage photo + Three.js layer, scaled together to cover the viewport (anchored right). */
+.scene {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 1408px;
+  height: 768px;
+  transform-origin: 0 0;
+  user-select: none;
+  -webkit-user-drag: none;
+}
+.scene > img,
+.scene > .veil,
+.scene > canvas {
+  position: absolute;
+  inset: 0;
+  width: 1408px;
+  height: 768px;
+  display: block;
+  pointer-events: none;
+}
+/* Hides the hard edge the model painted at x≈393 and gives the screen a calm field. */
+.veil {
+  background: linear-gradient(90deg, var(--bg) 0, var(--bg) 400px, rgb(203 217 220 / 0.6) 470px, rgb(203 217 220 / 0) 600px);
+}
+
+.screen {
+  position: absolute;
+  left: clamp(16px, 5vw, 80px);
+  top: 50%;
+  transform: translateY(-50%) perspective(1200px) rotateY(6deg);
+  width: min(420px, calc(100vw - 32px));
+}
+.bezel {
+  position: relative;
+  padding: 26px 26px 22px;
+  border-radius: 18px;
+  overflow: hidden;
+  background: radial-gradient(120% 90% at 30% 0%, #0e3a3d 0%, #071b1e 55%, #041114 100%);
+  border: 3px solid #1d2b2e;
+  box-shadow: 0 0 0 1px #2dd4bf55 inset, 0 0 40px #14b8a644, 0 30px 40px -20px #0008;
+  color: #c9fff5;
+  font-family: 'JetBrains Mono', ui-monospace, monospace;
+  animation: flick 6s infinite;
+}
+header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 11px;
+  letter-spacing: 0.14em;
+  color: #5eead4;
+}
+.led {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--teal);
+  box-shadow: 0 0 8px var(--teal);
+  animation: blink 1.6s infinite;
+}
+.status {
+  margin-left: auto;
+  font-size: 9px;
+  padding: 2px 6px;
+  border: 1px solid #2dd4bf66;
+  border-radius: 4px;
+}
+h1 {
+  font-family: Fraunces, serif;
+  font-weight: 600;
+  font-size: 30px;
+  line-height: 1.08;
+  margin: 18px 0 14px;
+  color: #f0fffc;
+  text-shadow: 0 0 18px #2dd4bf55;
+}
+.step {
+  font-size: 13px;
+  line-height: 1.5;
+  color: #9bd8cf;
+  margin: 14px 0 0;
+}
+.step b {
+  color: var(--teal);
+  margin-right: 6px;
+}
+.step strong {
+  color: #f0fffc;
+}
+.step i {
+  color: #fde68a;
+  font-style: normal;
+}
+.prompt {
+  min-height: 96px;
+  margin-top: 10px;
+  padding: 12px 14px;
+  border-radius: 8px;
+  background: #020b0c;
+  border: 1px solid #2dd4bf33;
+  font-size: 12px;
+  line-height: 1.5;
+  color: #a7f3d0;
+  overflow: hidden;
+  word-break: break-all;
+}
+.caret {
+  display: inline-block;
+  width: 6px;
+  height: 11px;
+  background: var(--teal);
+  vertical-align: -2px;
+  animation: blink 0.9s steps(1) infinite;
+}
+.copy {
+  margin-top: 12px;
+  width: 100%;
+  height: 42px;
+  border: 1px solid var(--teal);
+  border-radius: 7px;
+  background: #2dd4bf1f;
+  color: #e6fffb;
+  font: 600 13px Inter, sans-serif;
+  letter-spacing: 0.02em;
+  cursor: pointer;
+  transition: background 0.15s, box-shadow 0.15s;
+}
+.copy:hover {
+  background: #2dd4bf3d;
+  box-shadow: 0 0 16px #2dd4bf66;
+}
+.copy.ok {
+  background: var(--teal);
+  color: #032;
+}
+.scan {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  mix-blend-mode: overlay;
+  background: repeating-linear-gradient(0deg, #ffffff10 0 1px, transparent 1px 3px), linear-gradient(180deg, transparent 0, #2dd4bf14 50%, transparent 100%);
+  background-size: 100% 100%, 100% 40px;
+  animation: sweep 4s linear infinite;
+}
+
+@keyframes sweep {
+  to {
+    background-position: 0 0, 0 340px;
+  }
+}
+@keyframes blink {
+  50% {
+    opacity: 0.25;
+  }
+}
+@keyframes flick {
+  0%, 96%, 100% { filter: none; }
+  97% { filter: brightness(1.25); }
+  98% { filter: brightness(0.9); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .bezel,
+  .led,
+  .caret,
+  .scan {
+    animation: none;
+  }
+}
+@media (max-width: 640px) {
+  .screen {
+    transform: translateY(-50%);
+  }
+}
