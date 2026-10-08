@@ -36,8 +36,9 @@ function buildServer(caller: TokenRecord): McpServer {
         return text(
           `${jira_context}\n\nJira Reporter(s): ${reporters.join(', ')}\n\n` +
             `## Images attached in Jira\n${imageList}\n\n` +
-            `To use one, put it on its own line as ![short caption](<url above>) in the section it belongs to. ` +
-            `On publish the server uploads it into Notion, so the page hosts the image itself.`,
+            `Include EVERY image above in the note (skip none), each on its own line as ![short caption](<url>): ` +
+            `inline in the section it relates to, or under a final "### Screenshots" heading if no relation is clear. ` +
+            `On publish the server uploads them into Notion, so the page hosts the images itself.`,
         );
       } catch (error) {
         return fail(error);
@@ -130,7 +131,7 @@ function buildServer(caller: TokenRecord): McpServer {
                 `Steps:\n` +
                 `1. Call get_jira_context with those keys and read all of it (children, comments, QA notes).\n` +
                 `2. Write the note yourself in Markdown following the guidelines below exactly. Base every statement on the Jira context; never invent features.\n` +
-                `   Use the Jira images that illustrate a change, each on its own line in its section.\n` +
+                `   Include EVERY image listed under "Images attached in Jira" (skip none), each on its own line as ![caption](url).\n` +
                 (target ? '' : `3a. ASK me: "Where do I publish it: test or production?" and wait for my answer.\n`) +
                 `3. Call get_notion_options (${where}) and pick the Tag and Projects that fit.\n` +
                 `4. Show me the title, brief description, tag, projects and the full note, then call publish_release_note with ${where}` +
