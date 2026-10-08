@@ -7,6 +7,7 @@ import {
 import express from 'express';
 import { existsSync } from 'node:fs';
 import { join } from 'node:path';
+import { checkTokenStore } from './server/token-store';
 
 // Amplify bundles browser files next to the server entry (compute/default/browser).
 const bundledBrowserFolder = join(import.meta.dirname, 'browser');
@@ -18,16 +19,17 @@ const app = express();
 const angularApp = new AngularNodeAppEngine();
 
 /**
- * Example Express Rest API endpoints can be defined here.
- * Uncomment and define endpoints as necessary.
- *
- * Example:
- * ```ts
- * app.get('/api/{*splat}', (req, res) => {
- *   // Handle API request
- * });
- * ```
+ * DynamoDB token store check: write, read and delete one fixed probe item.
  */
+app.get('/api/health/db', async (_req, res) => {
+  try {
+    res.json({ ok: true, ...(await checkTokenStore()) });
+  } catch (error) {
+    const err = error as Error;
+    console.error('Token store check failed', err);
+    res.status(500).json({ ok: false, error: err.name, message: err.message });
+  }
+});
 
 /**
  * Serve static files from /browser
