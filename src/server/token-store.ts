@@ -1,13 +1,9 @@
 import { DynamoDBClient } from '@aws-sdk/client-dynamodb';
-import {
-  DeleteCommand,
-  DynamoDBDocumentClient,
-  GetCommand,
-  PutCommand,
-} from '@aws-sdk/lib-dynamodb';
+import { DynamoDBDocumentClient, GetCommand } from '@aws-sdk/lib-dynamodb';
 import { createHash } from 'node:crypto';
 
 // Credentials come from the Amplify compute role (no static keys).
+// Read-only by design: tokens are created by hand in DynamoDB (see /token-generator).
 const TABLE = process.env['TOKENS_TABLE'] || 'ibd-release-notes-tokens';
 const REGION = process.env['TOKENS_REGION'] || 'us-east-1';
 
@@ -15,7 +11,9 @@ const db = DynamoDBDocumentClient.from(new DynamoDBClient({ region: REGION }));
 
 export interface TokenRecord {
   tokenHash: string;
-  [key: string]: unknown;
+  owner?: string;
+  createdAt?: string;
+  active?: boolean;
 }
 
 /** Tokens are never stored in clear: only their SHA-256 hash is the key. */
@@ -28,23 +26,14 @@ export async function getTokenRecord(tokenHash: string): Promise<TokenRecord | u
   return res.Item as TokenRecord | undefined;
 }
 
-export async function putTokenRecord(record: TokenRecord): Promise<void> {
-  await db.send(new PutCommand({ TableName: TABLE, Item: record }));
+/** Returns the record of an active token, or undefined. */
+export async function findActiveToken(token: string): Promise<TokenRecord | undefined> {
+  const record = await getTokenRecord(hashToken(token));
+  return record?.active === true ? record : undefined;
 }
 
-export async function deleteTokenRecord(tokenHash: string): Promise<void> {
-  await db.send(new DeleteCommand({ TableName: TABLE, Key: { tokenHash } }));
-}
-
-const PROBE_KEY = '__healthcheck__';
-
-/** Write, read back and delete one fixed probe item (never grows the table). */
-export async function checkTokenStore(): Promise<{ write: boolean; read: boolean; delete: boolean }> {
-  const stamp = new Date().toISOString();
-  await putTokenRecord({ tokenHash: PROBE_KEY, stamp });
-  const item = await getTokenRecord(PROBE_KEY);
-  const read = item?.['stamp'] === stamp;
-  await deleteTokenRecord(PROBE_KEY);
-  const gone = (await getTokenRecord(PROBE_KEY)) === undefined;
-  return { write: true, read, delete: gone };
+/** Read-only connectivity check: looks up a key that never exists. */
+export async function checkTokenStore(): Promise<{ read: boolean }> {
+  await getTokenRecord('__healthcheck__');
+  return { read: true };
 }

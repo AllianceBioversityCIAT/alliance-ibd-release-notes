@@ -1,0 +1,53 @@
+<main class="page">
+  <header>
+    <p class="eyebrow">IBD Release Notes · interno</p>
+    <h1>Generador de tokens</h1>
+    <p class="lead">
+      El token se crea en este navegador y no se guarda en ningún lado. Solo existe cuando
+      pegas el ítem en la tabla <code>ibd-release-notes-tokens</code> de DynamoDB.
+    </p>
+  </header>
+
+  <form class="card" (submit)="$event.preventDefault(); generate()">
+    <label for="owner">Para quién es</label>
+    <div class="row">
+      <input
+        id="owner"
+        type="text"
+        placeholder="nombre o correo"
+        autocomplete="off"
+        [value]="owner()"
+        (input)="onOwnerInput($event)"
+      />
+      <button type="submit" [disabled]="!owner().trim() || busy()">Generar</button>
+    </div>
+  </form>
+
+  @if (generated(); as g) {
+    <section class="card">
+      <div class="step">
+        <span class="num">1</span>
+        <div class="grow">
+          <h2>Pega este ítem en DynamoDB</h2>
+          <p class="hint">Consola → Create item → vista JSON (DynamoDB JSON activado).</p>
+          <pre>{{ dynamoItem() }}</pre>
+          <button type="button" class="ghost" (click)="copy('item')">
+            {{ copied() === 'item' ? 'Copiado ✓' : 'Copiar ítem' }}
+          </button>
+        </div>
+      </div>
+
+      <div class="step">
+        <span class="num">2</span>
+        <div class="grow">
+          <h2>Entrega este token a {{ g.owner }}</h2>
+          <p class="hint warn">Solo se ve ahora. La tabla guarda el hash, no el token.</p>
+          <pre class="token">{{ g.token }}</pre>
+          <button type="button" class="ghost" (click)="copy('token')">
+            {{ copied() === 'token' ? 'Copiado ✓' : 'Copiar token' }}
+          </button>
+        </div>
+      </div>
+    </section>
+  }
+</main>
