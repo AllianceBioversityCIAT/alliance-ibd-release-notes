@@ -2,7 +2,7 @@ import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/streamableHttp.js';
 import express, { NextFunction, Request, Response, Router } from 'express';
 import { z } from 'zod';
-import { NOTE_TYPES, writingGuidelines } from './release-notes/guidelines';
+import { NOTE_TYPES, NoteType, writingGuidelines } from './release-notes/guidelines';
 import { buildJiraContextMulti } from './release-notes/jira';
 import { NOTION_ENVS, notionOptions, publishReleaseNote } from './release-notes/notion';
 import { findActiveToken, TokenRecord } from './token-store';
@@ -90,6 +90,44 @@ function buildServer(caller: TokenRecord): McpServer {
       } catch (error) {
         return fail(error);
       }
+    },
+  );
+
+  server.registerPrompt(
+    'create_release_note',
+    {
+      title: 'Create release note',
+      description:
+        'Writes an IBD release note from Jira tickets following the house standard and publishes it to Notion (test by default).',
+      argsSchema: {
+        issue_keys: z.string().describe('Jira keys separated by commas, e.g. P2-3824, P2-3880'),
+        note_type: z.string().optional().describe('brief | standard | detailed (default standard)'),
+        env: z.string().optional().describe('test | prod (default test)'),
+      },
+    },
+    ({ issue_keys, note_type, env }) => {
+      const type = (NOTE_TYPES as readonly string[]).includes(note_type ?? '') ? (note_type as NoteType) : 'standard';
+      const target = env === 'prod' ? 'prod' : 'test';
+      return {
+        messages: [
+          {
+            role: 'user',
+            content: {
+              type: 'text',
+              text:
+                `Create a release note for these Jira tickets: ${issue_keys}.\n\n` +
+                `Steps:\n` +
+                `1. Call get_jira_context with those keys and read all of it (children, comments, QA notes).\n` +
+                `2. Write the note yourself in Markdown following the guidelines below exactly. Base every statement on the Jira context; never invent features.\n` +
+                `3. Call get_notion_options (env "${target}") and pick the Tag and Projects that fit.\n` +
+                `4. Show me the title, brief description, tag, projects and the full note, then call publish_release_note with env "${target}"` +
+                (target === 'prod' ? ' ONLY after I confirm.' : '.') +
+                `\n5. Reply with the Notion URL.\n\n` +
+                `# Guidelines\n\n${writingGuidelines(type)}`,
+            },
+          },
+        ],
+      };
     },
   );
 

@@ -15,6 +15,7 @@ export type { RawIssueNode, JiraChild };
 const MAX_ISSUES = 50;
 const MAX_DEPTH = 6;
 const MAX_COMMENTS = 5;
+const CHILD_BATCH = 8;
 
 // Untyped Jira JSON (project uses noPropertyAccessFromIndexSignature).
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -181,11 +182,14 @@ async function collectRawTree(
 
   console.log(`[jira] ${key} (${issueType}) → ${subtaskKeys.length} children: [${subtaskKeys.join(", ")}]`);
 
+  // Children in parallel batches: a 50-issue epic took ~21 s sequentially, close to
+  // Amplify's ~30 s compute limit. Order is kept; `visited` is claimed synchronously.
   const children: RawIssueNode[] = [];
-  for (const childKey of subtaskKeys) {
-    if (visited.size >= MAX_ISSUES) break;
-    const child = await collectRawTree(childKey, visited, depth + 1);
-    if (child) children.push(child);
+  for (let i = 0; i < subtaskKeys.length && visited.size < MAX_ISSUES; i += CHILD_BATCH) {
+    const batch = await Promise.all(
+      subtaskKeys.slice(i, i + CHILD_BATCH).map((childKey) => collectRawTree(childKey, visited, depth + 1)),
+    );
+    for (const child of batch) if (child) children.push(child);
   }
 
   return {
