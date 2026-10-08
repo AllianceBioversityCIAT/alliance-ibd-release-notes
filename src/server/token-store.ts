@@ -1,9 +1,16 @@
 import { DynamoDBClient } from '@aws-sdk/client-dynamodb';
-import { DynamoDBDocumentClient, GetCommand } from '@aws-sdk/lib-dynamodb';
-import { createHash } from 'node:crypto';
+import {
+  DeleteCommand,
+  DynamoDBDocumentClient,
+  GetCommand,
+  PutCommand,
+  ScanCommand,
+  UpdateCommand,
+} from '@aws-sdk/lib-dynamodb';
+import { createHash, randomBytes } from 'node:crypto';
 
 // Credentials come from the Amplify compute role (no static keys).
-// Read-only by design: tokens are created only by the owner with scripts/create-token.mjs.
+// Writes are only reachable through the admin API (src/server/admin-api.ts).
 const TABLE = process.env['TOKENS_TABLE'] || 'ibd-release-notes-tokens';
 const REGION = process.env['TOKENS_REGION'] || 'us-east-1';
 
@@ -32,8 +39,69 @@ export async function findActiveToken(token: string): Promise<TokenRecord | unde
   return record?.active === true ? record : undefined;
 }
 
+export async function listTokenRecords(): Promise<TokenRecord[]> {
+  const items: TokenRecord[] = [];
+  let ExclusiveStartKey: Record<string, unknown> | undefined;
+  do {
+    const res = await db.send(new ScanCommand({ TableName: TABLE, ExclusiveStartKey, ConsistentRead: true }));
+    items.push(...((res.Items ?? []) as TokenRecord[]));
+    ExclusiveStartKey = res.LastEvaluatedKey;
+  } while (ExclusiveStartKey);
+  return items.filter((i) => i.tokenHash !== HEALTH_KEY);
+}
+
+/** Creates a token for `owner`; the clear token is returned once and never stored. */
+export async function createToken(owner: string): Promise<{ token: string; record: TokenRecord }> {
+  const token = 'rnt_' + randomBytes(32).toString('base64url');
+  const record: TokenRecord = {
+    tokenHash: hashToken(token),
+    owner,
+    createdAt: new Date().toISOString(),
+    active: true,
+  };
+  await db.send(
+    new PutCommand({ TableName: TABLE, Item: record, ConditionExpression: 'attribute_not_exists(tokenHash)' }),
+  );
+  return { token, record };
+}
+
+/** Returns the updated record, or undefined when the hash does not exist. */
+export async function setTokenActive(tokenHash: string, active: boolean): Promise<TokenRecord | undefined> {
+  try {
+    const res = await db.send(
+      new UpdateCommand({
+        TableName: TABLE,
+        Key: { tokenHash },
+        UpdateExpression: 'SET active = :a',
+        ConditionExpression: 'attribute_exists(tokenHash)',
+        ExpressionAttributeValues: { ':a': active },
+        ReturnValues: 'ALL_NEW',
+      }),
+    );
+    return res.Attributes as TokenRecord;
+  } catch (error) {
+    if ((error as Error).name === 'ConditionalCheckFailedException') return undefined;
+    throw error;
+  }
+}
+
+/** Returns false when the hash does not exist. */
+export async function deleteTokenRecord(tokenHash: string): Promise<boolean> {
+  try {
+    await db.send(
+      new DeleteCommand({ TableName: TABLE, Key: { tokenHash }, ConditionExpression: 'attribute_exists(tokenHash)' }),
+    );
+    return true;
+  } catch (error) {
+    if ((error as Error).name === 'ConditionalCheckFailedException') return false;
+    throw error;
+  }
+}
+
+const HEALTH_KEY = '__healthcheck__';
+
 /** Read-only connectivity check: looks up a key that never exists. */
 export async function checkTokenStore(): Promise<{ read: boolean }> {
-  await getTokenRecord('__healthcheck__');
+  await getTokenRecord(HEALTH_KEY);
   return { read: true };
 }

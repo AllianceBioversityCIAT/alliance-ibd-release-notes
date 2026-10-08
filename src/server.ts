@@ -7,7 +7,15 @@ import {
 import express from 'express';
 import { existsSync } from 'node:fs';
 import { join } from 'node:path';
+import { adminRouter } from './server/admin-api';
 import { checkTokenStore } from './server/token-store';
+
+// Amplify compute does not receive console env vars at runtime: the build writes them
+// to a .env next to the server entry (scripts/amplify-bundle.sh). Not under /browser.
+const runtimeEnvFile = join(import.meta.dirname, '.env');
+if (existsSync(runtimeEnvFile)) {
+  process.loadEnvFile(runtimeEnvFile);
+}
 
 // Amplify bundles browser files next to the server entry (compute/default/browser).
 const bundledBrowserFolder = join(import.meta.dirname, 'browser');
@@ -19,7 +27,12 @@ const app = express();
 const angularApp = new AngularNodeAppEngine();
 
 /**
- * DynamoDB token store check: write, read and delete one fixed probe item.
+ * Token CRUD, protected by the admin token (Authorization: Bearer).
+ */
+app.use('/api/admin', adminRouter());
+
+/**
+ * DynamoDB token store check (read-only).
  */
 app.get('/api/health/db', async (_req, res) => {
   try {
