@@ -62,12 +62,18 @@ describe('Home', () => {
     expect(el.querySelector('a.oneclick')?.getAttribute('href')).toContain('cursor://anysphere.cursor-deeplink/mcp/install');
   });
 
-  it('keeps ChatGPT pending and not copyable even with a token', async () => {
+  it('gives ChatGPT the server URL with the token as a query parameter', async () => {
+    const writeText = vi.fn().mockResolvedValue(undefined);
+    Object.assign(navigator, { clipboard: { writeText } });
     const { el, typeToken, pick } = await render();
-    await typeToken('rnt_abc_9999');
     await pick('ChatGPT');
-    expect(el.querySelector('.pending')?.textContent).toContain('Coming soon');
-    expect(el.querySelector<HTMLButtonElement>('.snippet .copy')!.disabled).toBe(true);
+    expect(el.querySelector('.snippet code')?.textContent).toBe(`${MCP_URL}?token=<YOUR_TOKEN>`);
+    await typeToken('rnt_abc_9999');
+    expect(el.querySelector('.snippet code')?.textContent).toContain('?token=••');
+    expect(el.querySelector('.pending')).toBeNull();
+    el.querySelector<HTMLButtonElement>('.snippet .copy')!.click();
+    await Promise.resolve();
+    expect(writeText).toHaveBeenCalledWith(`${MCP_URL}?token=rnt_abc_9999`);
   });
 
   it('masks short tokens fully', () => {
