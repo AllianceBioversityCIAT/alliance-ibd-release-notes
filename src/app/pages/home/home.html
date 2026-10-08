@@ -8,7 +8,7 @@
   <div class="card">
     <header>
       <span class="mark">IBD</span>
-      <span class="brand">Release Notes<small>MCP for Claude, Cursor and other clients</small></span>
+      <span class="brand">Release Notes<small>MCP for your AI client</small></span>
     </header>
     <h1 id="screen-title">Connect your AI client</h1>
     <p class="lead">Turn Jira epics into bilingual release notes and publish them to Notion, from the client you already use.</p>
@@ -21,13 +21,49 @@
         <p class="hint">Don’t have one? Request it from the developer. It never leaves this browser.</p>
       </li>
       <li>
-        <span class="label">Install prompt</span>
-        <div class="prompt" [class.ready]="hasToken()">
-          <code>{{ shown() }}</code>
+        <span class="label">Choose your client</span>
+        <div class="clients" role="tablist" aria-label="AI client">
+          @for (c of clients; track c.id) {
+            <button type="button" role="tab" class="client" [class.on]="c.id === selected()" [style.--brand]="c.color"
+                    [attr.aria-selected]="c.id === selected()" (click)="select(c.id)">
+              <span class="logo">
+                <svg viewBox="0 0 24 24" aria-hidden="true"><path [attr.d]="c.icon" /></svg>
+                @if (c.badge) { <span class="badge">{{ c.badge }}</span> }
+              </span>
+              <span>{{ c.name }}</span>
+            </button>
+          }
         </div>
-        <button type="button" class="copy" [class.ok]="copied()" [disabled]="!hasToken()" (click)="copy()">
-          {{ hasToken() ? copyLabel() : 'Paste your token to copy' }}
-        </button>
+      </li>
+      <li>
+        <span class="label">Install in {{ client().name }}</span>
+        @if (client().pending; as note) {
+          <p class="pending">{{ note }}</p>
+        }
+        <ul class="howto">
+          @for (s of client().steps; track s) { <li>{{ s }}</li> }
+        </ul>
+        @if (deeplink(); as link) {
+          <a class="oneclick" [href]="link">Add to {{ client().name }}</a>
+        }
+        @for (sn of client().snippets; track sn.label; let i = $index) {
+          <div class="snippet" [class.ready]="hasToken() && !client().pending">
+            <div class="snippet-head">
+              <span>{{ sn.label }}</span>
+              <button type="button" class="copy" [class.ok]="copied() === i"
+                      [disabled]="!hasToken() || !!client().pending" (click)="copy(sn, i)">
+                {{ copied() === i ? 'Copied' : 'Copy' }}
+              </button>
+            </div>
+            <pre [class.multi]="sn.multiline"><code>{{ shown(sn) }}</code></pre>
+          </div>
+        }
+        @if (!hasToken() && !client().pending) {
+          <p class="hint">Paste your token above to enable copying.</p>
+        }
+        @if (copyFailed()) {
+          <p class="hint">Copy is blocked here — select the text and copy it.</p>
+        }
       </li>
     </ol>
   </div>

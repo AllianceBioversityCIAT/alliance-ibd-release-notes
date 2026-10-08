@@ -1,14 +1,8 @@
 import { afterNextRender, Component, computed, DestroyRef, ElementRef, inject, signal, viewChild } from '@angular/core';
+import { DomSanitizer, SafeUrl } from '@angular/platform-browser';
+import { CLIENTS, ClientId, Snippet, TOKEN_SLOT } from './install-clients';
 import { STAGE, startReleaseNotesScene } from './release-notes-scene';
 
-/** Placeholder endpoint until the MCP route exists on this app. */
-export const TOKEN_SLOT = '<YOUR_TOKEN>';
-export const INSTALL_PROMPT =
-  'Install the IBD Release Notes MCP in this client: claude mcp add --transport http ibd-release-notes ' +
-  `https://main.d2c3gfm7joblnc.amplifyapp.com/mcp --header "Authorization: Bearer ${TOKEN_SLOT}"`;
-
-/** The install prompt with the viewer's token in place. The token never leaves the browser. */
-export const promptWithToken = (token: string) => INSTALL_PROMPT.replace(TOKEN_SLOT, token.trim());
 /** What the screen shows: the token masked except its last 4 characters. */
 export const maskToken = (token: string) => {
   const t = token.trim();
@@ -21,17 +15,23 @@ export const maskToken = (token: string) => {
   styleUrl: './home.css',
 })
 export class Home {
-  /** Server renders the full prompt; the browser re-types it as an effect. */
-  protected readonly typed = signal(INSTALL_PROMPT);
+  protected readonly clients = CLIENTS;
+  protected readonly selected = signal<ClientId>('claude-code');
+  protected readonly client = computed(() => CLIENTS.find((c) => c.id === this.selected())!);
+
   protected readonly token = signal('');
   protected readonly hasToken = computed(() => this.token().trim().length > 0);
-  /** Once a token is pasted the prompt is shown complete, token masked. */
-  protected readonly shown = computed(() =>
-    this.hasToken() ? INSTALL_PROMPT.replace(TOKEN_SLOT, maskToken(this.token())) : this.typed(),
-  );
-  protected readonly copyLabel = signal('Copy install prompt');
-  protected readonly copied = signal(false);
+  /** Which snippet was just copied (index), for the button feedback. */
+  protected readonly copied = signal<number | null>(null);
+  protected readonly copyFailed = signal(false);
 
+  /** Cursor's one-click install, built only once a token is there (the token never leaves the browser). */
+  protected readonly deeplink = computed<SafeUrl | null>(() => {
+    const link = this.client().deeplink;
+    return link && this.hasToken() ? this.sanitizer.bypassSecurityTrustUrl(link(this.token().trim())) : null;
+  });
+
+  private readonly sanitizer = inject(DomSanitizer);
   private readonly scene = viewChild.required<ElementRef<HTMLElement>>('scene');
   private readonly canvas = viewChild.required<ElementRef<HTMLCanvasElement>>('gl');
 
@@ -48,45 +48,43 @@ export class Home {
 
       let stop: (() => void) | undefined;
       let alive = true;
-      document.fonts.ready
+      // The scene is decoration: without WebGL (or fonts API) the page still works.
+      Promise.resolve(document.fonts?.ready)
         .then(() => startReleaseNotesScene(this.canvas().nativeElement))
-        .then((dispose) => (alive ? (stop = dispose) : dispose()));
-
-      let typing: ReturnType<typeof setTimeout> | undefined;
-      if (!matchMedia('(prefers-reduced-motion: reduce)').matches) {
-        let n = 0;
-        const tick = () => {
-          this.typed.set(INSTALL_PROMPT.slice(0, ++n));
-          if (n < INSTALL_PROMPT.length) typing = setTimeout(tick, 18);
-        };
-        tick();
-      }
+        .then((dispose) => (alive ? (stop = dispose) : dispose()))
+        .catch(() => undefined);
 
       destroyRef.onDestroy(() => {
         alive = false;
         removeEventListener('resize', fit);
-        clearTimeout(typing);
         stop?.();
       });
     });
+  }
+
+  /** Text on screen: placeholder until a token is pasted, then the token masked. */
+  protected shown(snippet: Snippet): string {
+    return snippet.value(this.hasToken() ? maskToken(this.token()) : TOKEN_SLOT);
+  }
+
+  protected select(id: ClientId): void {
+    this.selected.set(id);
+    this.copied.set(null);
   }
 
   protected onToken(event: Event): void {
     this.token.set((event.target as HTMLInputElement).value);
   }
 
-  protected async copy(): Promise<void> {
-    if (!this.hasToken()) return; // the token is required: the prompt is useless without it
+  protected async copy(snippet: Snippet, index: number): Promise<void> {
+    if (!this.hasToken() || this.client().pending) return; // the token is required
     try {
-      await navigator.clipboard.writeText(promptWithToken(this.token()));
-      this.copyLabel.set('Copied ✓');
-      this.copied.set(true);
+      await navigator.clipboard.writeText(snippet.value(this.token().trim()));
+      this.copyFailed.set(false);
+      this.copied.set(index);
     } catch {
-      this.copyLabel.set('Select the text and copy it');
+      this.copyFailed.set(true);
     }
-    setTimeout(() => {
-      this.copyLabel.set('Copy install prompt');
-      this.copied.set(false);
-    }, 1800);
+    setTimeout(() => this.copied.set(null), 1800);
   }
 }

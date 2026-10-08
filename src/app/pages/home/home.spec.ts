@@ -1,5 +1,6 @@
 import { TestBed } from '@angular/core/testing';
-import { Home, INSTALL_PROMPT, maskToken, promptWithToken } from './home';
+import { Home, maskToken } from './home';
+import { CLIENTS, MCP_URL } from './install-clients';
 
 describe('Home', () => {
   beforeEach(async () => {
@@ -9,40 +10,68 @@ describe('Home', () => {
   const render = async () => {
     const fixture = TestBed.createComponent(Home);
     await fixture.whenStable();
-    return { fixture, el: fixture.nativeElement as HTMLElement };
-  };
-  const typeToken = async (fixture: { whenStable(): Promise<unknown>; detectChanges(): void }, el: HTMLElement, value: string) => {
-    const input = el.querySelector<HTMLInputElement>('input.token')!;
-    input.value = value;
-    input.dispatchEvent(new Event('input'));
-    fixture.detectChanges();
-    await fixture.whenStable();
+    const el = fixture.nativeElement as HTMLElement;
+    const settle = async () => (fixture.detectChanges(), await fixture.whenStable());
+    const typeToken = async (value: string) => {
+      const input = el.querySelector<HTMLInputElement>('input.token')!;
+      input.value = value;
+      input.dispatchEvent(new Event('input'));
+      await settle();
+    };
+    const pick = async (name: string) => {
+      [...el.querySelectorAll<HTMLButtonElement>('button.client')].find((b) => b.textContent?.includes(name))!.click();
+      await settle();
+    };
+    return { el, typeToken, pick };
   };
 
-  it('requires a token before the prompt can be copied', async () => {
+  it('lists the four clients with a logo each', async () => {
     const { el } = await render();
-    const button = el.querySelector<HTMLButtonElement>('button.copy')!;
-    expect(button.disabled).toBe(true);
-    expect(button.textContent?.trim()).toBe('Paste your token to copy');
+    const names = [...el.querySelectorAll('button.client > span:last-child')].map((b) => b.textContent?.trim());
+    expect(names).toEqual(['Claude Code', 'Claude', 'Cursor', 'ChatGPT']);
+    expect(el.querySelectorAll('button.client svg path').length).toBe(4);
+  });
+
+  it('requires a token before anything can be copied', async () => {
+    const { el } = await render();
+    expect(el.querySelector<HTMLButtonElement>('.snippet .copy')!.disabled).toBe(true);
     expect(el.querySelector('.hint')?.textContent).toContain('Request it from the developer');
   });
 
-  it('copies the full prompt with the real token while showing it masked', async () => {
+  it('copies the Claude Code command with the real token while showing it masked', async () => {
     const writeText = vi.fn().mockResolvedValue(undefined);
     Object.assign(navigator, { clipboard: { writeText } });
-    const { fixture, el } = await render();
-    await typeToken(fixture, el, '  rn_secret_1234  ');
+    const { el, typeToken } = await render();
+    await typeToken('  rnt_secret_1234  ');
 
-    expect(el.querySelector('.prompt code')?.textContent).toContain('••1234');
-    expect(el.querySelector('.prompt code')?.textContent).not.toContain('rn_secret');
-    el.querySelector<HTMLButtonElement>('button.copy')!.click();
+    const code = el.querySelector('.snippet code')!.textContent!;
+    expect(code).toContain('••1234');
+    expect(code).not.toContain('rnt_secret');
+    el.querySelector<HTMLButtonElement>('.snippet .copy')!.click();
     await Promise.resolve();
-    expect(writeText).toHaveBeenCalledWith(promptWithToken('rn_secret_1234'));
-    expect(writeText.mock.calls[0][0]).not.toContain('<YOUR_TOKEN>');
+    expect(writeText).toHaveBeenCalledWith(
+      `claude mcp add --transport http ibd-release-notes ${MCP_URL} --header "Authorization: Bearer rnt_secret_1234"`,
+    );
   });
 
-  it('keeps the placeholder prompt intact and masks short tokens fully', () => {
-    expect(INSTALL_PROMPT).toContain('claude mcp add');
+  it('gives Cursor a one-click link only once the token is there', async () => {
+    const { el, typeToken, pick } = await render();
+    await pick('Cursor');
+    expect(el.querySelector('a.oneclick')).toBeNull();
+    await typeToken('rnt_abc_9999');
+    expect(el.querySelector('a.oneclick')?.getAttribute('href')).toContain('cursor://anysphere.cursor-deeplink/mcp/install');
+  });
+
+  it('keeps ChatGPT pending and not copyable even with a token', async () => {
+    const { el, typeToken, pick } = await render();
+    await typeToken('rnt_abc_9999');
+    await pick('ChatGPT');
+    expect(el.querySelector('.pending')?.textContent).toContain('Coming soon');
+    expect(el.querySelector<HTMLButtonElement>('.snippet .copy')!.disabled).toBe(true);
+  });
+
+  it('masks short tokens fully', () => {
     expect(maskToken('abc')).toBe('•••');
+    expect(CLIENTS.find((c) => c.id === 'claude')!.snippets.map((s) => s.label)).toContain('Authorization header');
   });
 });
