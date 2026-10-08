@@ -47,7 +47,18 @@ export async function listTokenRecords(): Promise<TokenRecord[]> {
     items.push(...((res.Items ?? []) as TokenRecord[]));
     ExclusiveStartKey = res.LastEvaluatedKey;
   } while (ExclusiveStartKey);
-  return items.filter((i) => i.tokenHash !== HEALTH_KEY);
+  return items.filter((i) => i.tokenHash !== HEALTH_KEY && !i.tokenHash.startsWith('owner#'));
+}
+
+// One active token per owner: a lock item `owner#<sha256(owner)>` points to it, so a
+// retried create cannot mint a second token (no Scan permission needed).
+const ownerLockKey = (owner: string) => 'owner#' + hashToken(owner.trim().toLowerCase());
+
+export class OwnerHasActiveToken extends Error {
+  constructor(readonly tokenHash: string) {
+    super('owner_has_active_token');
+    this.name = 'OwnerHasActiveToken';
+  }
 }
 
 /** Creates a token for `owner`; the clear token is returned once and never stored. */
@@ -59,6 +70,29 @@ export async function createToken(owner: string): Promise<{ token: string; recor
     createdAt: new Date().toISOString(),
     active: true,
   };
+  const lockKey = ownerLockKey(owner);
+  const lock = (await getTokenRecord(lockKey)) as (TokenRecord & { current?: string }) | undefined;
+  if (lock?.current) {
+    const current = await getTokenRecord(lock.current);
+    if (current?.active) throw new OwnerHasActiveToken(lock.current);
+  }
+  // Claim the lock: only if it is still what we read (absent or pointing to the old token).
+  try {
+    await db.send(
+      new PutCommand({
+        TableName: TABLE,
+        Item: { tokenHash: lockKey, current: record.tokenHash },
+        ConditionExpression: lock ? 'current = :old' : 'attribute_not_exists(tokenHash)',
+        ExpressionAttributeValues: lock ? { ':old': lock.current } : undefined,
+      }),
+    );
+  } catch (error) {
+    if ((error as Error).name === 'ConditionalCheckFailedException') {
+      const winner = (await getTokenRecord(lockKey)) as { current?: string } | undefined;
+      throw new OwnerHasActiveToken(winner?.current ?? '');
+    }
+    throw error;
+  }
   await db.send(
     new PutCommand({ TableName: TABLE, Item: record, ConditionExpression: 'attribute_not_exists(tokenHash)' }),
   );

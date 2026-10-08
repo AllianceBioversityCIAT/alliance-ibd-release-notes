@@ -5,6 +5,7 @@ import {
   deleteTokenRecord,
   hashToken,
   listTokenRecords,
+  OwnerHasActiveToken,
   setTokenActive,
 } from './token-store';
 
@@ -51,13 +52,13 @@ export function adminRouter(): Router {
         res.status(400).json({ error: 'owner_required' });
         return;
       }
-      const existing = (await listTokenRecords()).find((t) => t.active && t.owner === owner);
-      if (existing) {
-        res.status(409).json({ error: 'owner_has_active_token', tokenHash: existing.tokenHash });
-        return;
+      try {
+        const { token, record } = await createToken(owner);
+        res.status(201).json({ token, ...record });
+      } catch (error) {
+        if (!(error instanceof OwnerHasActiveToken)) throw error;
+        res.status(409).json({ error: 'owner_has_active_token', tokenHash: error.tokenHash });
       }
-      const { token, record } = await createToken(owner);
-      res.status(201).json({ token, ...record });
     }),
   );
 
