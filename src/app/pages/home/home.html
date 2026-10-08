@@ -4,14 +4,31 @@
   <canvas #gl></canvas>
 </div>
 
-<section class="screen" aria-label="Install the IBD Release Notes MCP">
-  <div class="bezel">
-    <header><span class="led"></span>IBD · RELEASE NOTES MCP<span class="status">ONLINE</span></header>
-    <h1>Jira → Notion,<br>written for you</h1>
-    <p class="step"><b>01</b> Paste this prompt into Claude Code, Cursor or any MCP client</p>
-    <div class="prompt"><code>{{ typed() }}</code><span class="caret"></span></div>
-    <button type="button" class="copy" [class.ok]="copied()" (click)="copy()">{{ copyLabel() }}</button>
-    <p class="step"><b>02</b> Replace <i>&lt;YOUR_TOKEN&gt;</i> with your personal token — <strong>request it from the developer</strong>.</p>
-    <div class="scan"></div>
+<section class="screen" aria-labelledby="screen-title">
+  <div class="card">
+    <header>
+      <span class="mark">IBD</span>
+      <span class="brand">Release Notes<small>MCP for Claude, Cursor and other clients</small></span>
+    </header>
+    <h1 id="screen-title">Connect your AI client</h1>
+    <p class="lead">Turn Jira epics into bilingual release notes and publish them to Notion, from the client you already use.</p>
+
+    <ol class="steps">
+      <li>
+        <label for="token">Personal token <span class="req">Required</span></label>
+        <input id="token" class="token" type="password" autocomplete="off" spellcheck="false" placeholder="Paste your token"
+               [value]="token()" (input)="onToken($event)">
+        <p class="hint">Don’t have one? Request it from the developer. It never leaves this browser.</p>
+      </li>
+      <li>
+        <span class="label">Install prompt</span>
+        <div class="prompt" [class.ready]="hasToken()">
+          <code>{{ shown() }}</code>
+        </div>
+        <button type="button" class="copy" [class.ok]="copied()" [disabled]="!hasToken()" (click)="copy()">
+          {{ hasToken() ? copyLabel() : 'Paste your token to copy' }}
+        </button>
+      </li>
+    </ol>
   </div>
 </section>

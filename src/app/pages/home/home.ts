@@ -1,10 +1,19 @@
-import { afterNextRender, Component, DestroyRef, ElementRef, inject, signal, viewChild } from '@angular/core';
+import { afterNextRender, Component, computed, DestroyRef, ElementRef, inject, signal, viewChild } from '@angular/core';
 import { STAGE, startReleaseNotesScene } from './release-notes-scene';
 
 /** Placeholder endpoint until the MCP route exists on this app. */
+export const TOKEN_SLOT = '<YOUR_TOKEN>';
 export const INSTALL_PROMPT =
   'Install the IBD Release Notes MCP in this client: claude mcp add --transport http ibd-release-notes ' +
-  'https://main.d2c3gfm7joblnc.amplifyapp.com/mcp --header "Authorization: Bearer <YOUR_TOKEN>"';
+  `https://main.d2c3gfm7joblnc.amplifyapp.com/mcp --header "Authorization: Bearer ${TOKEN_SLOT}"`;
+
+/** The install prompt with the viewer's token in place. The token never leaves the browser. */
+export const promptWithToken = (token: string) => INSTALL_PROMPT.replace(TOKEN_SLOT, token.trim());
+/** What the screen shows: the token masked except its last 4 characters. */
+export const maskToken = (token: string) => {
+  const t = token.trim();
+  return t.length <= 4 ? '•'.repeat(t.length) : '•'.repeat(Math.min(12, t.length - 4)) + t.slice(-4);
+};
 
 @Component({
   selector: 'app-home',
@@ -12,9 +21,14 @@ export const INSTALL_PROMPT =
   styleUrl: './home.css',
 })
 export class Home {
-  protected readonly prompt = INSTALL_PROMPT;
   /** Server renders the full prompt; the browser re-types it as an effect. */
   protected readonly typed = signal(INSTALL_PROMPT);
+  protected readonly token = signal('');
+  protected readonly hasToken = computed(() => this.token().trim().length > 0);
+  /** Once a token is pasted the prompt is shown complete, token masked. */
+  protected readonly shown = computed(() =>
+    this.hasToken() ? INSTALL_PROMPT.replace(TOKEN_SLOT, maskToken(this.token())) : this.typed(),
+  );
   protected readonly copyLabel = signal('Copy install prompt');
   protected readonly copied = signal(false);
 
@@ -57,9 +71,14 @@ export class Home {
     });
   }
 
+  protected onToken(event: Event): void {
+    this.token.set((event.target as HTMLInputElement).value);
+  }
+
   protected async copy(): Promise<void> {
+    if (!this.hasToken()) return; // the token is required: the prompt is useless without it
     try {
-      await navigator.clipboard.writeText(INSTALL_PROMPT);
+      await navigator.clipboard.writeText(promptWithToken(this.token()));
       this.copyLabel.set('Copied ✓');
       this.copied.set(true);
     } catch {
