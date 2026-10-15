@@ -124,13 +124,101 @@ function allBlocks(blocks: Block[]): Block[] {
 }
 
 
-export async function notionOptions(env: NotionEnv): Promise<{ tags: string[]; projects: string[] }> {
+export async function notionOptions(
+  env: NotionEnv,
+): Promise<{ tags: string[]; projects: string[]; people_fields: string[]; people: string[] }> {
   const data = await notionFetch(`/databases/${getDbId(env)}`);
   if (data.object === 'error') throw new Error(data.message);
   return {
     tags: data.properties?.Tags?.select?.options?.map((o: { name: string }) => o.name) ?? [],
     projects: data.properties?.Projects?.multi_select?.options?.map((o: { name: string }) => o.name) ?? [],
+    people_fields: PEOPLE_FIELDS.filter((f) => data.properties?.[f]?.type === 'people'),
+    people: [...(await peopleDirectory()).keys()].map((k) => peopleNames.get(k) ?? k).sort(),
   };
+}
+
+/* ─── People (Developers / Contributors) ─────────── */
+// "Created by" is set by Notion to the integration and cannot be changed; these people fields can.
+export const PEOPLE_FIELDS = ['Developers', 'Contributors'] as const;
+export type PeopleField = (typeof PEOPLE_FIELDS)[number];
+
+const norm = (name: string) => name.normalize('NFD').replace(/[\u0300-\u036f]/g, '').trim().toLowerCase();
+const peopleNames = new Map<string, string>();
+let peopleCache: { at: number; ids: Map<string, string> } | null = null;
+
+/**
+ * Name → Notion user id of everyone already tagged in the release notes (the integration cannot list
+ * all workspace users). Built from every people field and author of both databases, cached 10 minutes.
+ */
+async function peopleDirectory(): Promise<Map<string, string>> {
+  if (peopleCache && Date.now() - peopleCache.at < 10 * 60_000) return peopleCache.ids;
+  const ids = new Map<string, string>();
+  const add = (u: { id?: string; name?: string; object?: string; type?: string } | undefined) => {
+    if (!u?.id || !u.name || u.type === 'bot') return;
+    ids.set(norm(u.name), u.id);
+    peopleNames.set(norm(u.name), u.name.trim());
+  };
+  const users = await notionFetch('/users?page_size=100');
+  for (const u of users.results ?? []) add(u);
+  for (const env of NOTION_ENVS) {
+    let dbId: string;
+    try {
+      dbId = getDbId(env);
+    } catch {
+      continue;
+    }
+    let cursor: string | undefined;
+    let pages = 0;
+    do {
+      const res = await notionFetch(`/databases/${dbId}/query`, 'POST', {
+        page_size: 100,
+        ...(cursor ? { start_cursor: cursor } : {}),
+      });
+      if (res.object === 'error') break;
+      for (const page of res.results ?? []) {
+        for (const prop of Object.values(page.properties ?? {}) as Array<Record<string, any>>) {
+          if (prop['type'] === 'people') prop['people'].forEach(add);
+          if (prop['type'] === 'created_by') add(prop['created_by']);
+        }
+      }
+      cursor = res.has_more ? res.next_cursor : undefined;
+      pages++;
+    } while (cursor && pages < 10);
+  }
+  peopleCache = { at: Date.now(), ids };
+  return ids;
+}
+
+/** Turns names ("Yecksin Zuñiga", "yecksin") into Notion people; fails with suggestions if unknown. */
+async function resolvePeople(names: string[]): Promise<Array<{ id: string }>> {
+  const ids = await peopleDirectory();
+  return names.map((name) => {
+    const key = norm(name);
+    const exact = ids.get(key);
+    if (exact) return { id: exact };
+    const partial = [...ids.keys()].filter((k) => k.split(/\s+/).some((w) => w === key) || k.startsWith(key));
+    if (partial.length === 1) return { id: ids.get(partial[0])! };
+    const hint = (partial.length ? partial : [...ids.keys()]).map((k) => peopleNames.get(k)).join(', ');
+    throw new Error(`Person "${name}" is ${partial.length ? 'ambiguous' : 'unknown'}. Known people: ${hint}`);
+  });
+}
+
+/** People properties for the fields this database has (TEST has no Contributors). */
+async function peopleProperties(dbProps: Record<string, { type: string }>, people: Partial<Record<PeopleField, string[]>>) {
+  const out: Record<string, unknown> = {};
+  for (const field of PEOPLE_FIELDS) {
+    const names = people[field];
+    if (!names) continue;
+    if (dbProps[field]?.type !== 'people') throw new Error(`This database has no "${field}" field`);
+    out[field] = { people: await resolvePeople(names) };
+  }
+  return out;
+}
+
+async function dbProperties(env: NotionEnv): Promise<Record<string, { type: string }>> {
+  const db = await notionFetch(`/databases/${getDbId(env)}`);
+  if (db.object === 'error') throw new Error(db.message);
+  return db.properties ?? {};
 }
 
 const MAX_IMAGE_BYTES = 20 * 1024 * 1024; // Notion single-part upload limit
@@ -201,6 +289,8 @@ export interface PublishInput {
   projects?: string[];
   released_date?: string;
   cover_url?: string;
+  developers?: string[];
+  contributors?: string[];
   env: NotionEnv;
 }
 
@@ -214,6 +304,11 @@ function toCover(url: string): Record<string, unknown> {
 export async function publishReleaseNote(input: PublishInput): Promise<{ url: string; id: string; duplicate?: boolean; images?: number }> {
   const { title, brief_description, tag, projects, released_date, markdown, cover_url, env } = input;
   const dbId = getDbId(env);
+  // Resolve people before anything is written, so an unknown name never leaves a half-made page.
+  const people =
+    input.developers || input.contributors
+      ? await peopleProperties(await dbProperties(env), { Developers: input.developers, Contributors: input.contributors })
+      : {};
   // A retried publish (client timeout, double call) returns the page created moments ago.
   const recent = await notionFetch(`/databases/${dbId}/query`, 'POST', {
     page_size: 1,
@@ -240,6 +335,7 @@ export async function publishReleaseNote(input: PublishInput): Promise<{ url: st
       ...(tag ? { Tags: { select: { name: tag } } } : {}),
       ...(projects?.length ? { Projects: { multi_select: projects.map((p) => ({ name: p })) } } : {}),
       'Released date': { date: { start: released_date ?? new Date().toISOString().split('T')[0] } },
+      ...people,
     },
     children: blocks.slice(0, 100),
   });
@@ -288,6 +384,9 @@ export async function updateReleaseNote(input: UpdateInput): Promise<{ url: stri
     ...(tag ? { Tags: { select: { name: tag } } } : {}),
     ...(projects ? { Projects: { multi_select: projects.map((p) => ({ name: p })) } } : {}),
     ...(released_date ? { 'Released date': { date: { start: released_date } } } : {}),
+    ...(input.developers || input.contributors
+      ? await peopleProperties(await dbProperties(env), { Developers: input.developers, Contributors: input.contributors })
+      : {}),
   };
   if (Object.keys(properties).length || cover_url) {
     const updated = await notionFetch(`/pages/${id}`, 'PATCH', {

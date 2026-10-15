@@ -32,7 +32,7 @@ const FLOW = `Release note flow — follow it in order, one question at a time, 
    - Navigate following the Jira activity, take the screenshots, show them and ASK if they work.
    - Upload every local image with get_image_upload_url + curl, and use the returned ref as the image URL.
 4. ASK which type of note it is, recommending one from the size of the change, with how it would look: "brief" (small fix, ~150 words) · "standard" (one feature, ~300 words) · "detailed" (new module, ~550 words with sub-sections) · "release" (many changes across areas: one-minute summary on top, then one collapsible section per area with its screenshots). Then call get_writing_guidelines with that note_type and write the note following it exactly. Show the title, brief description, tag, projects and the full note. ASK for approval or changes.
-5. ASK: "Where do I publish it: TEST (dev) or PRODUCTION?". Call get_notion_options for that environment to choose Tag and Projects.
+5. ASK: "Where do I publish it: TEST (dev) or PRODUCTION?". Call get_notion_options for that environment to choose Tag and Projects. "Created by" always shows the integration and cannot change, so the people fields mark who did it: ASK who goes in Developers (who built it) and in Contributors (always include the person publishing), using names from "people".
 6. Call publish_release_note with that environment only after the user approved. Reply with the Notion URL.
 Editing a published note: when the user asks to change a note, show the change and ASK for approval, then call update_release_note with the page URL and the same environment. Send the FULL new markdown when the body changes (it replaces the whole body), and only the fields that change otherwise.`;
 
@@ -113,7 +113,8 @@ function buildServer(caller: TokenRecord, baseUrl: string): McpServer {
     'get_notion_options',
     {
       title: 'Get Notion tags and projects',
-      description: 'Lists the valid Tags and Projects of the Notion release notes database for an environment.',
+      description:
+        'Lists the valid Tags, Projects, people fields (Developers / Contributors) and known people of the Notion release notes database for an environment.',
       inputSchema: { env: ENV_INPUT },
     },
     async ({ env }) => {
@@ -140,6 +141,11 @@ function buildServer(caller: TokenRecord, baseUrl: string): McpServer {
         tag: z.string().optional(),
         projects: z.array(z.string()).optional(),
         released_date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
+        developers: z.array(z.string().min(1)).optional().describe('Names of who built it (Developers field)'),
+        contributors: z
+          .array(z.string().min(1))
+          .optional()
+          .describe('Names of who contributed, including the person publishing (Contributors field; prod only)'),
         cover_url: z
           .string()
           .url()
@@ -166,7 +172,8 @@ function buildServer(caller: TokenRecord, baseUrl: string): McpServer {
     {
       title: 'Edit a published release note',
       description:
-        'Edits a release note already in Notion: title, brief description, tag, projects, date, cover and/or the whole body. ' +
+        'Edits a release note already in Notion: title, brief description, tag, projects, date, cover, Developers, Contributors and/or the whole body. ' +
+        'developers / contributors REPLACE the current list: send everyone who must stay. ' +
         'Call it only after the user approved the change. markdown, when sent, REPLACES the whole body: send the full note. ' +
         'Only pages of the release notes database of that env can be edited.',
       inputSchema: {
@@ -178,6 +185,11 @@ function buildServer(caller: TokenRecord, baseUrl: string): McpServer {
         tag: z.string().optional(),
         projects: z.array(z.string()).optional(),
         released_date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
+        developers: z.array(z.string().min(1)).optional().describe('Names of who built it (Developers field)'),
+        contributors: z
+          .array(z.string().min(1))
+          .optional()
+          .describe('Names of who contributed, including the person publishing (Contributors field; prod only)'),
         cover_url: z.string().url().optional(),
       },
     },
