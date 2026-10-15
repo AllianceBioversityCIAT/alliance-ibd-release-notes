@@ -3,7 +3,7 @@
 // legacy AI notes got wrong (too long, technical leaks, internal QA details, no support contact).
 // With the MCP the client LLM writes the note; the server only hands out these rules.
 
-export const NOTE_TYPES = ['brief', 'standard', 'detailed'] as const;
+export const NOTE_TYPES = ['brief', 'standard', 'detailed', 'release'] as const;
 export type NoteType = (typeof NOTE_TYPES)[number];
 
 export const SYSTEM_MESSAGE = `You write release notes for the Innovations and Business Development (IBD) team of the Alliance of Bioversity International and CIAT. They are published in Notion ("Overall Achievements") and read by researchers, program managers and leadership who use CGIAR platforms (PRMS Reporting Tool, CLARISA, MARLO, AICCRA, STAR, dashboards). The reference reader is the team lead: demanding, short on time, wants to know in one minute what changed, why it matters to users and where to find it.
@@ -51,6 +51,14 @@ const NOTE_TYPE_INSTRUCTIONS: Record<NoteType, string> = {
   detailed: `## NOTE TYPE: DETAILED (new module or large release)
 - 400-650 words. Full structure; "What's new" may use one short ### sub-heading per major area (max 4), each with 2-4 sentences and its screenshot.
 - Still finish the whole structure, ending with the closing callout.`,
+  release: `## NOTE TYPE: RELEASE (many changes across several areas of one platform)
+- Overrides the length and the "What's new" rule above. Keep the opening callout, Why it matters, How to access, caveats and closing callout.
+- "## What's new" opens with an executive summary: 5-8 bullets, one per area, bold area name + one sentence. A reader with one minute stops here.
+- Then one collapsible section per area (max 8), written exactly like this, each tag on its own line:
+  <details><summary>Area name</summary>
+  2-6 bullets with the full detail of that area, and its screenshots right after the bullet they prove.
+  </details>
+- No headings, callouts or nested sections inside a collapsible section. 120-250 words per section; the whole note may reach 1,800 words.`,
 };
 
 export function writingGuidelines(noteType: NoteType): string {

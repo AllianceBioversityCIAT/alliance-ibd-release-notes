@@ -62,12 +62,27 @@ function blk(type: string, rt: RT[]): Block {
 }
 
 function markdownToBlocks(md: string): Block[] {
-  const blocks: Block[] = [];
+  const root: Block[] = [];
+  let blocks = root;
   const imgRe = /^!\[([^\]]*)\]\(([^)]+)\)$/;
+  // "<details><summary>Area</summary>" … "</details>" = collapsible heading with the lines in between inside.
+  const toggleRe = /^<details>\s*<summary>(.+)<\/summary>$/;
 
   for (const raw of md.split("\n")) {
-    const t = raw.trimEnd();
+    const t = raw.trim();
     if (!t) continue;
+
+    const toggleMatch = t.match(toggleRe);
+    if (toggleMatch && blocks === root) {
+      const children: Block[] = [];
+      root.push({ type: "heading_3", heading_3: { rich_text: parseInline(toggleMatch[1]), is_toggleable: true, children } });
+      blocks = children;
+      continue;
+    }
+    if (t === "</details>") {
+      blocks = root;
+      continue;
+    }
 
     const imgMatch = t.match(imgRe);
     if (imgMatch) {
@@ -91,14 +106,21 @@ function markdownToBlocks(md: string): Block[] {
     else if (t.startsWith("### ")) blocks.push(blk("heading_3", parseInline(t.slice(4))));
     else if (t.startsWith("## ")) blocks.push(blk("heading_2", parseInline(t.slice(3))));
     else if (t.startsWith("# ")) blocks.push(blk("heading_1", parseInline(t.slice(2))));
-    else if (/^\s{2,}[-*] /.test(t)) blocks.push(blk("bulleted_list_item", parseInline(t.replace(/^\s+[-*] /, ""))));
     else if (t.startsWith("- ") || t.startsWith("* ")) blocks.push(blk("bulleted_list_item", parseInline(t.slice(2))));
     else if (/^\d+\. /.test(t)) blocks.push(blk("numbered_list_item", parseInline(t.replace(/^\d+\. /, ""))));
     else if (t === "---" || t === "***" || t === "___") blocks.push({ type: "divider", divider: {} });
     else if (t.startsWith("> ")) blocks.push(blk("quote", parseInline(t.slice(2))));
     else blocks.push(blk("paragraph", parseInline(t)));
   }
-  return blocks;
+  return root;
+}
+
+/** Every block of the page, including the ones inside collapsible headings. */
+function allBlocks(blocks: Block[]): Block[] {
+  return blocks.flatMap((b) => {
+    const children = (b[b['type'] as string] as { children?: Block[] } | undefined)?.children;
+    return children ? [b, ...allBlocks(children)] : [b];
+  });
 }
 
 
@@ -157,7 +179,7 @@ async function uploadImageToNotion(url: string): Promise<string> {
 
 /** Replaces every external image block by a Notion-hosted upload (fails before creating the page). */
 async function hostImagesInNotion(blocks: Block[]): Promise<number> {
-  const images = blocks.filter((b) => b['type'] === 'image') as Array<Record<string, any>>;
+  const images = allBlocks(blocks).filter((b) => b['type'] === 'image') as Array<Record<string, any>>;
   for (let i = 0; i < images.length; i += UPLOAD_BATCH) {
     await Promise.all(
       images.slice(i, i + UPLOAD_BATCH).map(async (b) => {

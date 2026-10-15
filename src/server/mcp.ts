@@ -31,7 +31,7 @@ const FLOW = `Release note flow — follow it in order, one question at a time, 
    - ASK which environment to capture (TEST or PRODUCTION) and ask the user to log in themselves in the opened browser. Never handle passwords.
    - Navigate following the Jira activity, take the screenshots, show them and ASK if they work.
    - Upload every local image with get_image_upload_url + curl, and use the returned ref as the image URL.
-4. Call get_writing_guidelines (note_type "standard" unless the user or the size of the change says brief/detailed) and write the note following it exactly. Show the title, brief description, tag, projects and the full note. ASK for approval or changes.
+4. ASK which type of note it is, recommending one from the size of the change, with how it would look: "brief" (small fix, ~150 words) · "standard" (one feature, ~300 words) · "detailed" (new module, ~550 words with sub-sections) · "release" (many changes across areas: one-minute summary on top, then one collapsible section per area with its screenshots). Then call get_writing_guidelines with that note_type and write the note following it exactly. Show the title, brief description, tag, projects and the full note. ASK for approval or changes.
 5. ASK: "Where do I publish it: TEST (dev) or PRODUCTION?". Call get_notion_options for that environment to choose Tag and Projects.
 6. Call publish_release_note with that environment only after the user approved. Reply with the Notion URL.`;
 
@@ -168,7 +168,7 @@ function buildServer(caller: TokenRecord, baseUrl: string): McpServer {
         'Guided flow: Jira activity → short summary to confirm → images or automatic screenshots → note in the IBD standard → TEST or PRODUCTION → Notion URL.',
       argsSchema: {
         issue_keys: z.string().optional().describe('Jira keys separated by commas (if empty, Claude asks)'),
-        note_type: z.string().optional().describe('brief | standard | detailed (default standard)'),
+        note_type: z.string().optional().describe('brief | standard | detailed | release (default standard)'),
       },
     },
     ({ issue_keys, note_type }) => {
