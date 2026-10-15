@@ -182,6 +182,13 @@ export interface PublishInput {
   env: NotionEnv;
 }
 
+/** Page cover: an image sent through the upload URL is already in Notion; any other URL stays external. */
+function toCover(url: string): Record<string, unknown> {
+  return url.startsWith(NOTION_UPLOAD_REF)
+    ? { type: 'file_upload', file_upload: { id: url.slice(NOTION_UPLOAD_REF.length) } }
+    : { type: 'external', external: { url } };
+}
+
 export async function publishReleaseNote(input: PublishInput): Promise<{ url: string; id: string; duplicate?: boolean; images?: number }> {
   const { title, brief_description, tag, projects, released_date, markdown, cover_url, env } = input;
   const dbId = getDbId(env);
@@ -202,7 +209,7 @@ export async function publishReleaseNote(input: PublishInput): Promise<{ url: st
   const imageCount = await hostImagesInNotion(blocks);
   const page = await notionFetch('/pages', 'POST', {
     parent: { database_id: dbId },
-    ...(cover_url ? { cover: { type: 'external', external: { url: cover_url } } } : {}),
+    ...(cover_url ? { cover: toCover(cover_url) } : {}),
     properties: {
       Name: { title: [{ text: { content: title.slice(0, 2000) } }] },
       ...(brief_description

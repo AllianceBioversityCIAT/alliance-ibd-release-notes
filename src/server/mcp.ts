@@ -139,7 +139,11 @@ function buildServer(caller: TokenRecord, baseUrl: string): McpServer {
         tag: z.string().optional(),
         projects: z.array(z.string()).optional(),
         released_date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
-        cover_url: z.string().url().optional(),
+        cover_url: z
+          .string()
+          .url()
+          .optional()
+          .describe('Header image of the page: a public https URL or a notion-upload: ref from get_image_upload_url.'),
         env: ENV_INPUT,
       },
     },
