@@ -6,7 +6,7 @@ import { signedUploadUrl } from './image-upload';
 import { NOTE_TYPES, NoteType, writingGuidelines } from './release-notes/guidelines';
 import { buildJiraContextMulti } from './release-notes/jira';
 import { navigationGuide, PLATFORMS } from './release-notes/navigation';
-import { notionOptions, publishReleaseNote } from './release-notes/notion';
+import { notionOptions, publishReleaseNote, updateReleaseNote } from './release-notes/notion';
 import { findActiveToken, TokenRecord } from './token-store';
 
 const JIRA_KEY = /^[A-Z][A-Z0-9_]+-\d+$/;
@@ -33,7 +33,8 @@ const FLOW = `Release note flow — follow it in order, one question at a time, 
    - Upload every local image with get_image_upload_url + curl, and use the returned ref as the image URL.
 4. ASK which type of note it is, recommending one from the size of the change, with how it would look: "brief" (small fix, ~150 words) · "standard" (one feature, ~300 words) · "detailed" (new module, ~550 words with sub-sections) · "release" (many changes across areas: one-minute summary on top, then one collapsible section per area with its screenshots). Then call get_writing_guidelines with that note_type and write the note following it exactly. Show the title, brief description, tag, projects and the full note. ASK for approval or changes.
 5. ASK: "Where do I publish it: TEST (dev) or PRODUCTION?". Call get_notion_options for that environment to choose Tag and Projects.
-6. Call publish_release_note with that environment only after the user approved. Reply with the Notion URL.`;
+6. Call publish_release_note with that environment only after the user approved. Reply with the Notion URL.
+Editing a published note: when the user asks to change a note, show the change and ASK for approval, then call update_release_note with the page URL and the same environment. Send the FULL new markdown when the body changes (it replaces the whole body), and only the fields that change otherwise.`;
 
 function buildServer(caller: TokenRecord, baseUrl: string): McpServer {
   const server = new McpServer({ name: 'ibd-release-notes', version: '2.0.0' }, { instructions: FLOW });
@@ -154,6 +155,38 @@ function buildServer(caller: TokenRecord, baseUrl: string): McpServer {
         if (page.duplicate) return text(`Already published moments ago (not duplicated): ${page.url}`);
         console.log(`[mcp] ${caller.owner} published "${input.title}" to Notion ${env}`);
         return text(`Published to Notion (${env}) with ${page.images} image(s): ${page.url}`);
+      } catch (error) {
+        return fail(error);
+      }
+    },
+  );
+
+  server.registerTool(
+    'update_release_note',
+    {
+      title: 'Edit a published release note',
+      description:
+        'Edits a release note already in Notion: title, brief description, tag, projects, date, cover and/or the whole body. ' +
+        'Call it only after the user approved the change. markdown, when sent, REPLACES the whole body: send the full note. ' +
+        'Only pages of the release notes database of that env can be edited.',
+      inputSchema: {
+        page: z.string().min(1).describe('Notion page URL or id'),
+        env: ENV_INPUT,
+        title: z.string().min(1).max(2000).optional(),
+        markdown: z.string().min(1).optional(),
+        brief_description: z.string().max(2000).optional(),
+        tag: z.string().optional(),
+        projects: z.array(z.string()).optional(),
+        released_date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
+        cover_url: z.string().url().optional(),
+      },
+    },
+    async (input) => {
+      try {
+        const env = toEnv(input.env);
+        const page = await updateReleaseNote({ ...input, env });
+        console.log(`[mcp] ${caller.owner} edited ${page.id} in Notion ${env}`);
+        return text(`Updated in Notion (${env})${page.images !== undefined ? ` with ${page.images} image(s)` : ''}: ${page.url}`);
       } catch (error) {
         return fail(error);
       }

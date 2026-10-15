@@ -249,3 +249,69 @@ export async function publishReleaseNote(input: PublishInput): Promise<{ url: st
   }
   return { url: page.url, id: page.id, images: imageCount };
 }
+
+/** Accepts a Notion page URL or id and returns the id with dashes. */
+export function toPageId(pageUrlOrId: string): string {
+  const hex = pageUrlOrId.split('?')[0].replace(/-/g, '').match(/[0-9a-f]{32}$/i)?.[0];
+  if (!hex) throw new Error(`Not a Notion page URL or id: ${pageUrlOrId}`);
+  return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20)}`;
+}
+
+export interface UpdateInput extends Partial<Omit<PublishInput, 'env'>> {
+  page: string;
+  env: NotionEnv;
+}
+
+/**
+ * Edits a release note already published by this tool. Only pages of the release notes database of
+ * that environment can be edited. A new markdown replaces the whole body; images are hosted first,
+ * so a failed upload leaves the page untouched.
+ */
+export async function updateReleaseNote(input: UpdateInput): Promise<{ url: string; id: string; images?: number }> {
+  const { page, env, title, brief_description, tag, projects, released_date, markdown, cover_url } = input;
+  const id = toPageId(page);
+  const current = await notionFetch(`/pages/${id}`);
+  if (current.object === 'error') throw new Error(current.message);
+  const dbId = getDbId(env).replace(/-/g, '');
+  if (current.parent?.database_id?.replace(/-/g, '') !== dbId) {
+    throw new Error(`That page is not a release note of the ${env} database`);
+  }
+
+  const blocks = markdown ? markdownToBlocks(markdown) : null;
+  const imageCount = blocks ? await hostImagesInNotion(blocks) : undefined;
+
+  const properties: Record<string, unknown> = {
+    ...(title ? { Name: { title: [{ text: { content: title.slice(0, 2000) } }] } } : {}),
+    ...(brief_description !== undefined
+      ? { 'Brief description': { rich_text: [{ text: { content: brief_description.slice(0, 2000) } }] } }
+      : {}),
+    ...(tag ? { Tags: { select: { name: tag } } } : {}),
+    ...(projects ? { Projects: { multi_select: projects.map((p) => ({ name: p })) } } : {}),
+    ...(released_date ? { 'Released date': { date: { start: released_date } } } : {}),
+  };
+  if (Object.keys(properties).length || cover_url) {
+    const updated = await notionFetch(`/pages/${id}`, 'PATCH', {
+      ...(Object.keys(properties).length ? { properties } : {}),
+      ...(cover_url ? { cover: toCover(cover_url) } : {}),
+    });
+    if (updated.object === 'error') throw new Error(updated.message);
+  }
+
+  if (blocks) {
+    const oldIds: string[] = [];
+    let cursor: string | undefined;
+    do {
+      const list = await notionFetch(`/blocks/${id}/children?page_size=100${cursor ? `&start_cursor=${cursor}` : ''}`);
+      if (list.object === 'error') throw new Error(list.message);
+      oldIds.push(...list.results.map((b: { id: string }) => b.id));
+      cursor = list.has_more ? list.next_cursor : undefined;
+    } while (cursor);
+    for (let i = 0; i < blocks.length; i += 100) {
+      const added = await notionFetch(`/blocks/${id}/children`, 'PATCH', { children: blocks.slice(i, i + 100) });
+      if (added.object === 'error') throw new Error(added.message);
+    }
+    // Old body goes only after the new one is in, so an error never leaves the page empty.
+    for (const oldId of oldIds) await notionFetch(`/blocks/${oldId}`, 'DELETE');
+  }
+  return { url: current.url, id, images: imageCount };
+}
