@@ -7,7 +7,7 @@ import { NOTE_TYPES, NoteType, writingGuidelines } from './release-notes/guideli
 import { buildJiraContextMulti } from './release-notes/jira';
 import { navigationGuide, PLATFORMS } from './release-notes/navigation';
 import { notionOptions, publishReleaseNote, updateReleaseNote } from './release-notes/notion';
-import { findActiveToken, TokenRecord } from './token-store';
+import { findActiveToken, NotionCounter, recordUsage, TokenRecord } from './token-store';
 
 const JIRA_KEY = /^[A-Z][A-Z0-9_]+-\d+$/;
 
@@ -38,6 +38,17 @@ Editing a published note: when the user asks to change a note, show the change a
 
 function buildServer(caller: TokenRecord, baseUrl: string): McpServer {
   const server = new McpServer({ name: 'ibd-release-notes', version: '2.0.0' }, { instructions: FLOW });
+
+  // Metrics chokepoint: every tool registered below counts its successful calls for the caller.
+  // One server per request (stateless), so the Notion counter set by publish/edit is this call's.
+  let notionCounter: NotionCounter | undefined;
+  const register = server.registerTool.bind(server) as (...args: unknown[]) => unknown;
+  (server as unknown as { registerTool: (...args: unknown[]) => unknown }).registerTool = (name, config, cb) =>
+    register(name, config, async (...args: unknown[]) => {
+      const result = (await (cb as (...a: unknown[]) => unknown)(...args)) as { isError?: boolean };
+      if (!result?.isError) await recordUsage(caller.tokenHash, name as string, notionCounter);
+      return result;
+    });
 
   server.registerTool(
     'get_jira_context',
@@ -159,6 +170,7 @@ function buildServer(caller: TokenRecord, baseUrl: string): McpServer {
         const env = toEnv(input.env);
         const page = await publishReleaseNote({ ...input, env });
         if (page.duplicate) return text(`Already published moments ago (not duplicated): ${page.url}`);
+        notionCounter = `published_${env}`;
         console.log(`[mcp] ${caller.owner} published "${input.title}" to Notion ${env}`);
         return text(`Published to Notion (${env}) with ${page.images} image(s): ${page.url}`);
       } catch (error) {
@@ -197,6 +209,7 @@ function buildServer(caller: TokenRecord, baseUrl: string): McpServer {
       try {
         const env = toEnv(input.env);
         const page = await updateReleaseNote({ ...input, env });
+        notionCounter = `edited_${env}`;
         console.log(`[mcp] ${caller.owner} edited ${page.id} in Notion ${env}`);
         return text(`Updated in Notion (${env})${page.images !== undefined ? ` with ${page.images} image(s)` : ''}: ${page.url}`);
       } catch (error) {

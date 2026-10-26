@@ -150,6 +150,77 @@ export async function deleteTokenRecord(tokenHash: string): Promise<boolean> {
   return true;
 }
 
+// Usage counters live on the token record itself (no second table, no new permissions).
+// Flat attribute names because DynamoDB cannot ADD into a map that does not exist yet.
+const USES_PREFIX = 'uses_';
+const NOTION_COUNTERS = ['published_test', 'published_prod', 'edited_test', 'edited_prod'] as const;
+export type NotionCounter = (typeof NOTION_COUNTERS)[number];
+
+/**
+ * Counts one successful tool call (plus a Notion counter for publish/edit) and stamps last use.
+ * Never throws: metrics must not break a release note.
+ */
+export async function recordUsage(tokenHash: string, tool: string, notion?: NotionCounter): Promise<void> {
+  const names: Record<string, string> = { '#tool': USES_PREFIX + tool };
+  let add = '#tool :one';
+  if (notion) {
+    names['#notion'] = notion;
+    add += ', #notion :one';
+  }
+  try {
+    await db.send(
+      new UpdateCommand({
+        TableName: TABLE,
+        Key: { tokenHash },
+        UpdateExpression: `SET lastUsedAt = :now, firstUsedAt = if_not_exists(firstUsedAt, :now) ADD ${add}`,
+        // A deleted token must not come back as a counters-only item.
+        ConditionExpression: 'attribute_exists(tokenHash)',
+        ExpressionAttributeNames: names,
+        ExpressionAttributeValues: { ':now': new Date().toISOString(), ':one': 1 },
+      }),
+    );
+  } catch (error) {
+    console.error(`[metrics] usage not recorded for ${tool}: ${(error as Error).name}`);
+  }
+}
+
+export interface UsageSummary {
+  owner: string;
+  active: boolean;
+  createdAt?: string;
+  firstUsedAt?: string;
+  lastUsedAt?: string;
+  totalCalls: number;
+  tools: Record<string, number>;
+  notion: Record<NotionCounter, number>;
+}
+
+/** Per-person usage, most recent first (never-used tokens last). */
+export function summarizeUsage(records: TokenRecord[]): UsageSummary[] {
+  return records
+    .map((record) => {
+      const item = record as TokenRecord & Record<string, unknown>;
+      const tools: Record<string, number> = {};
+      for (const [key, value] of Object.entries(item)) {
+        if (key.startsWith(USES_PREFIX) && typeof value === 'number') tools[key.slice(USES_PREFIX.length)] = value;
+      }
+      const notion = Object.fromEntries(
+        NOTION_COUNTERS.map((c) => [c, typeof item[c] === 'number' ? (item[c] as number) : 0]),
+      ) as Record<NotionCounter, number>;
+      return {
+        owner: record.owner ?? '(sin nombre)',
+        active: record.active === true,
+        createdAt: record.createdAt,
+        firstUsedAt: item['firstUsedAt'] as string | undefined,
+        lastUsedAt: item['lastUsedAt'] as string | undefined,
+        totalCalls: Object.values(tools).reduce((a, b) => a + b, 0),
+        tools,
+        notion,
+      };
+    })
+    .sort((a, b) => (b.lastUsedAt ?? '').localeCompare(a.lastUsedAt ?? ''));
+}
+
 const HEALTH_KEY = '__healthcheck__';
 
 /** Read-only connectivity check: looks up a key that never exists. */

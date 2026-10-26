@@ -7,6 +7,7 @@ import {
   listTokenRecords,
   OwnerHasActiveToken,
   setTokenActive,
+  summarizeUsage,
 } from './token-store';
 
 // Only the SHA-256 of the admin token lives in the environment (ADMIN_TOKEN_HASH).
@@ -40,6 +41,14 @@ export function adminRouter(): Router {
     '/tokens',
     wrap(async (_req, res) => {
       res.json({ tokens: await listTokenRecords() });
+    }),
+  );
+
+  // Usage per person (no hashes): last use, calls per tool, notes published / edited per env.
+  router.get(
+    '/metrics',
+    wrap(async (_req, res) => {
+      res.json({ people: summarizeUsage(await listTokenRecords()) });
     }),
   );
 
