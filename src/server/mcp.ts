@@ -21,6 +21,13 @@ const fail = (error: unknown) => ({
   ...text(`Error: ${error instanceof Error ? error.message : String(error)}`),
 });
 
+/** Notion counter of a publish / edit result, read by the metrics wrapper in buildServer. */
+const notionCounters = new WeakMap<object, NotionCounter>();
+const counted = <T extends object>(result: T, counter: NotionCounter): T => {
+  notionCounters.set(result, counter);
+  return result;
+};
+
 /** The conversation every client must follow (prompt + server instructions). */
 const FLOW = `Release note flow — follow it in order, one question at a time, and wait for the user's answer at every step marked ASK:
 1. ASK which Jira activity (ticket key or keys) the note is for, unless already given.
@@ -40,13 +47,13 @@ function buildServer(caller: TokenRecord, baseUrl: string): McpServer {
   const server = new McpServer({ name: 'ibd-release-notes', version: '2.0.0' }, { instructions: FLOW });
 
   // Metrics chokepoint: every tool registered below counts its successful calls for the caller.
-  // One server per request (stateless), so the Notion counter set by publish/edit is this call's.
-  let notionCounter: NotionCounter | undefined;
+  // The Notion counter rides on the result object of its own call (a JSON-RPC batch runs
+  // several calls on this same server at once, so a shared variable would mix them up).
   const register = server.registerTool.bind(server) as (...args: unknown[]) => unknown;
   (server as unknown as { registerTool: (...args: unknown[]) => unknown }).registerTool = (name, config, cb) =>
     register(name, config, async (...args: unknown[]) => {
       const result = (await (cb as (...a: unknown[]) => unknown)(...args)) as { isError?: boolean };
-      if (!result?.isError) await recordUsage(caller.tokenHash, name as string, notionCounter);
+      if (!result?.isError) await recordUsage(caller.tokenHash, name as string, notionCounters.get(result));
       return result;
     });
 
@@ -170,9 +177,8 @@ function buildServer(caller: TokenRecord, baseUrl: string): McpServer {
         const env = toEnv(input.env);
         const page = await publishReleaseNote({ ...input, env });
         if (page.duplicate) return text(`Already published moments ago (not duplicated): ${page.url}`);
-        notionCounter = `published_${env}`;
         console.log(`[mcp] ${caller.owner} published "${input.title}" to Notion ${env}`);
-        return text(`Published to Notion (${env}) with ${page.images} image(s): ${page.url}`);
+        return counted(text(`Published to Notion (${env}) with ${page.images} image(s): ${page.url}`), `published_${env}`);
       } catch (error) {
         return fail(error);
       }
@@ -209,9 +215,11 @@ function buildServer(caller: TokenRecord, baseUrl: string): McpServer {
       try {
         const env = toEnv(input.env);
         const page = await updateReleaseNote({ ...input, env });
-        notionCounter = `edited_${env}`;
         console.log(`[mcp] ${caller.owner} edited ${page.id} in Notion ${env}`);
-        return text(`Updated in Notion (${env})${page.images !== undefined ? ` with ${page.images} image(s)` : ''}: ${page.url}`);
+        return counted(
+          text(`Updated in Notion (${env})${page.images !== undefined ? ` with ${page.images} image(s)` : ''}: ${page.url}`),
+          `edited_${env}`,
+        );
       } catch (error) {
         return fail(error);
       }
