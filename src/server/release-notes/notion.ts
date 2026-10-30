@@ -294,11 +294,10 @@ export interface PublishInput {
   env: NotionEnv;
 }
 
-/** Page cover: an image sent through the upload URL is already in Notion; any other URL stays external. */
-function toCover(url: string): Record<string, unknown> {
-  return url.startsWith(NOTION_UPLOAD_REF)
-    ? { type: 'file_upload', file_upload: { id: url.slice(NOTION_UPLOAD_REF.length) } }
-    : { type: 'external', external: { url } };
+/** Page cover, always hosted in Notion: an upload ref is already there; any other URL is uploaded first. */
+async function toCover(url: string): Promise<Record<string, unknown>> {
+  const id = url.startsWith(NOTION_UPLOAD_REF) ? url.slice(NOTION_UPLOAD_REF.length) : await uploadImageToNotion(url);
+  return { type: 'file_upload', file_upload: { id } };
 }
 
 export async function publishReleaseNote(input: PublishInput): Promise<{ url: string; id: string; duplicate?: boolean; images?: number }> {
@@ -324,9 +323,10 @@ export async function publishReleaseNote(input: PublishInput): Promise<{ url: st
 
   const blocks = markdownToBlocks(markdown);
   const imageCount = await hostImagesInNotion(blocks);
+  const cover = cover_url ? await toCover(cover_url) : undefined;
   const page = await notionFetch('/pages', 'POST', {
     parent: { database_id: dbId },
-    ...(cover_url ? { cover: toCover(cover_url) } : {}),
+    ...(cover ? { cover } : {}),
     properties: {
       Name: { title: [{ text: { content: title.slice(0, 2000) } }] },
       ...(brief_description
@@ -375,6 +375,7 @@ export async function updateReleaseNote(input: UpdateInput): Promise<{ url: stri
 
   const blocks = markdown ? markdownToBlocks(markdown) : null;
   const imageCount = blocks ? await hostImagesInNotion(blocks) : undefined;
+  const cover = cover_url ? await toCover(cover_url) : undefined;
 
   const properties: Record<string, unknown> = {
     ...(title ? { Name: { title: [{ text: { content: title.slice(0, 2000) } }] } } : {}),
@@ -388,10 +389,10 @@ export async function updateReleaseNote(input: UpdateInput): Promise<{ url: stri
       ? await peopleProperties(await dbProperties(env), { Developers: input.developers, Contributors: input.contributors })
       : {}),
   };
-  if (Object.keys(properties).length || cover_url) {
+  if (Object.keys(properties).length || cover) {
     const updated = await notionFetch(`/pages/${id}`, 'PATCH', {
       ...(Object.keys(properties).length ? { properties } : {}),
-      ...(cover_url ? { cover: toCover(cover_url) } : {}),
+      ...(cover ? { cover } : {}),
     });
     if (updated.object === 'error') throw new Error(updated.message);
   }
