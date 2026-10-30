@@ -34,8 +34,9 @@ const FLOW = `Release note flow — follow it in order, one question at a time, 
 2. Call get_jira_context. Show a SHORT summary (max 5 lines): ticket title, what was built, how many sub-items were read, how many images were found. ASK: "Is this the activity you need?"
 3. Images. If Jira has images, list them and ASK whether to add more. If there are none, ASK the user to send images (public URLs or local file paths) or offer to take screenshots automatically:
    - Call get_navigation_guide (platform "prms" for PRMS Reporting Tool, otherwise "other") and follow it.
+   - No browser tools? ASK permission to install Playwright MCP as the guide says.
    - If you do not understand what the change is or where it lives, ASK the user to explain it before navigating.
-   - ASK which environment to capture (TEST or PRODUCTION) and ask the user to log in themselves in the opened browser. Never handle passwords.
+   - Screenshots only in a TEST or DEV environment, never production: ASK the user to confirm the test URL, then ask them to log in themselves in the opened browser (explain how step by step if they have not done it before). Never handle passwords.
    - Navigate following the Jira activity, take the screenshots, show them and ASK if they work.
    - Upload every local image with get_image_upload_url + curl, and use the returned ref as the image URL.
 4. ASK which type of note it is, recommending one from the size of the change, with how it would look: "brief" (small fix, ~150 words) · "standard" (one feature, ~300 words) · "detailed" (new module, ~550 words with sub-sections) · "release" (many changes across areas: one-minute summary on top, then one collapsible section per area with its screenshots). Then call get_writing_guidelines with that note_type and write the note following it exactly. Show the title, brief description, tag, projects and the full note. ASK for approval or changes.
@@ -101,7 +102,7 @@ function buildServer(caller: TokenRecord, baseUrl: string): McpServer {
     {
       title: 'Get navigation guide for screenshots',
       description:
-        'How to log in safely and navigate a platform to take screenshots of the changed screens (environments, menu paths, URL patterns).',
+        'How to install Playwright, help the user log in and navigate a TEST environment (never production) to take screenshots of the changed screens (menu paths, URL patterns).',
       inputSchema: { platform: z.enum(PLATFORMS) },
     },
     async ({ platform }) => text(navigationGuide(platform)),
